@@ -1,0 +1,17 @@
+{
+  "name": "Mesh Printer Control",
+  "shortName": "printercontrol",
+  "version": "0.3.1",
+  "author": "Custom MeshCentral Integration",
+  "description": "Secure printer, print-job and Print Spooler management for Windows endpoints.",
+  "hasAdminPanel": false,
+  "homepage": "https://github.com/Ylianst/MeshCentral",
+  "changelogUrl": "https://example.invalid/mesh-printer-control/CHANGELOG.md",
+  "configUrl": "https://example.invalid/mesh-printer-control/config.json",
+  "downloadUrl": "https://example.invalid/mesh-printer-control/archive/main.zip",
+  "repository": {
+    "type": "git",
+    "url": "https://example.invalid/mesh-printer-control.git"
+  },
+  "meshCentralCompat": ">=1.1.58"
+}
