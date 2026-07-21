@@ -1,14 +1,5 @@
 # Changelog
 
-## 0.4.0
-
-- Remove `printer_helper.exe` and the separate `MeshPrinterControl` Windows service.
-- Run allow-listed printer operations directly from MeshCore through Windows PowerShell under the existing LocalSystem Mesh Agent service.
-- Embed the versioned PowerShell operation script in the MeshCore module and verify its exact bytes after writing it to `%ProgramData%\MeshPrinterControl`.
-- Validate every operation parameter again on the endpoint before starting PowerShell.
-- Preserve local JSON-lines auditing with 5 MiB log rotation.
-- Remove helper download, staging, hashing and installation logic from the server plugin.
-
 ## 0.3.1
 
 - Remove the endpoint `SHA256Stream` dependency because its API differs across MeshAgent builds.
