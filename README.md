@@ -69,7 +69,7 @@ https://github.com/stavila0170/meshcentral-printercontrol
 Place the contents of `plugin\printercontrol` in the repository's `printercontrol` directory, commit and push to the `main` branch. Confirm that this URL returns only JSON, without a GitHub HTML page:
 
 ```text
-https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/config.json
+https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/config.json
 ```
 
 Use that raw URL when adding the plugin to MeshCentral. The GitHub archive referenced by `downloadUrl` must retain the `printercontrol` directory at repository root.
