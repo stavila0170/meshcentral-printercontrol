@@ -9,8 +9,6 @@
 
 module.exports.printercontrol = function (parent) {
     var crypto = require("crypto");
-    var fs = require("fs");
-    var path = require("path");
     var obj = {};
 
     obj.parent = parent;
@@ -18,8 +16,6 @@ module.exports.printercontrol = function (parent) {
     obj.debug = obj.meshServer.debug;
     obj.VIEWS = __dirname + "/views/";
     obj.pending = Object.create(null);
-    obj.deployment = null;
-    obj.deploymentError = null;
     obj.exports = ["onDeviceRefreshEnd"];
 
     var ACTION_PERMISSIONS = {
@@ -72,68 +68,11 @@ module.exports.printercontrol = function (parent) {
         });
     }
 
-    function loadDeploymentAsset() {
-        var assetDirectory = path.join(__dirname, "assets", "windows-x64");
-        var manifestPath = path.join(assetDirectory, "manifest.json");
-        var manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-        if (!manifest || typeof manifest.version !== "string" || !/^\d+\.\d+\.\d+$/.test(manifest.version)) {
-            throw new Error("Invalid helper deployment version");
-        }
-        if (manifest.architecture !== "x64" || manifest.file !== "printer_helper.exe" || typeof manifest.size !== "number" || manifest.size < 1024) {
-            throw new Error("Invalid helper deployment manifest");
-        }
-        if (typeof manifest.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(manifest.sha256)) {
-            throw new Error("Invalid helper SHA-256 in deployment manifest");
-        }
-
-        var assetPath = path.join(assetDirectory, manifest.file);
-        var stat = fs.statSync(assetPath);
-        if (!stat.isFile() || stat.size !== manifest.size) {
-            throw new Error("Helper asset size does not match its manifest");
-        }
-        var actualHash = crypto.createHash("sha256").update(fs.readFileSync(assetPath)).digest("hex");
-        if (actualHash !== manifest.sha256) {
-            throw new Error("Helper asset failed SHA-256 validation");
-        }
-
-        var servedFileName = "printercontrol-helper-" + manifest.version + "-" + manifest.sha256.substring(0, 12) + ".exe";
-        var temporaryDirectory = path.join(obj.meshServer.webserver.filespath, "tmp");
-        fs.mkdirSync(temporaryDirectory, { recursive: true });
-        var servedPath = path.join(temporaryDirectory, servedFileName);
-        fs.copyFileSync(assetPath, servedPath);
-
-        obj.deployment = {
-            version: manifest.version,
-            architecture: manifest.architecture,
-            size: manifest.size,
-            sha256: manifest.sha256,
-            fileName: servedFileName,
-            servedPath: servedPath
-        };
-    }
-
-    function publicDeploymentManifest() {
-        if (!obj.deployment) return null;
-        return {
-            version: obj.deployment.version,
-            architecture: obj.deployment.architecture,
-            size: obj.deployment.size,
-            sha256: obj.deployment.sha256,
-            fileName: obj.deployment.fileName
-        };
-    }
-
     obj.server_startup = function () {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        try {
-            loadDeploymentAsset();
-            obj.debug("plugin:printercontrol", "Printer Control plugin started; helper " + obj.deployment.version + " is ready for automatic deployment");
-        } catch (ex) {
-            obj.deploymentError = String(ex && ex.message ? ex.message : ex);
-            obj.debug("plugin:printercontrol", "Printer Control automatic deployment is unavailable: " + obj.deploymentError);
-        }
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.0 started in agent-only mode (no helper executable)");
     };
 
     // This function is serialized into the MeshCentral web application. Keep it
@@ -259,83 +198,9 @@ module.exports.printercontrol = function (parent) {
         }
     }
 
-    function finishPendingWithError(requestId, error) {
-        var pending = obj.pending[requestId];
-        if (!pending) return;
-        clearTimeout(pending.timer);
-        if (pending.downloadTimer) clearTimeout(pending.downloadTimer);
-        delete obj.pending[requestId];
-        fail(pending.session, pending.operation, error, requestId);
-    }
-
-    function scheduleDownloadCheck(requestId, delay) {
-        var pending = obj.pending[requestId];
-        if (!pending) return;
-        if (pending.downloadTimer) clearTimeout(pending.downloadTimer);
-        pending.downloadTimer = setTimeout(function () {
-            var current = obj.pending[requestId];
-            if (!current) return;
-            current.downloadTimer = null;
-            if (!sendToAgent(current.nodeid, {
-                action: "plugin",
-                plugin: "printercontrol",
-                pluginaction: current.operation,
-                params: current.params,
-                requestId: requestId,
-                bootstrap: Object.assign(publicDeploymentManifest(), {
-                    waitForDownload: true,
-                    stagingPath: current.stagingPath,
-                    downloadStable: current.downloadStable === true
-                })
-            })) {
-                finishPendingWithError(requestId, "Unable to continue helper deployment");
-            }
-        }, delay);
-    }
-
     function sourceMatchesPending(command, agent, pending) {
         var sourceNodeId = command.nodeid || (agent && agent.dbNodeKey);
         return !sourceNodeId || sourceNodeId === pending.nodeid;
-    }
-
-    function tlsHashForDomain(domainId) {
-        var hashes = obj.meshServer.webserver && obj.meshServer.webserver.webCertificateFullHashs;
-        var value = hashes && hashes[domainId];
-        return value == null ? null : Buffer.from(value, "binary").toString("hex");
-    }
-
-    function isValidStagingPath(stagingPath, requestId) {
-        if (!obj.deployment || typeof stagingPath !== "string" || stagingPath.length > 520 || !/^[a-f0-9]{36}$/.test(requestId)) return false;
-        var normalized = stagingPath.replace(/\//g, "\\");
-        var suffix = "\\MeshPrinterControl\\staging\\" + requestId + "\\" + obj.deployment.fileName;
-        return /^[A-Za-z]:\\/.test(normalized) && normalized.toLowerCase().slice(-suffix.length) === suffix.toLowerCase();
-    }
-
-    function createAgentDownloadCommand(nodeid, stagingPath, requestId) {
-        if (!obj.deployment) throw new Error(obj.deploymentError || "Helper deployment asset is unavailable");
-        if (!isValidStagingPath(stagingPath, requestId)) throw new Error("Agent requested an invalid helper staging path");
-        if (!obj.meshServer.loginCookieEncryptionKey) throw new Error("MeshCentral download encryption key is not ready");
-
-        var domainId = nodeid.split("/")[1];
-        var domain = obj.meshServer.config.domains[domainId];
-        if (!domain) throw new Error("Unable to resolve the device domain");
-        var cookie = obj.meshServer.encodeCookie({
-            a: "tmpdl",
-            d: domain.id,
-            nid: nodeid,
-            f: obj.deployment.fileName
-        }, obj.meshServer.loginCookieEncryptionKey);
-        if (!cookie) throw new Error("Unable to create the helper download token");
-
-        return {
-            action: "wget",
-            overwrite: true,
-            createFolder: true,
-            urlpath: domain.url + "agentdownload.ashx?c=" + cookie,
-            path: stagingPath,
-            folder: path.win32.dirname(stagingPath),
-            servertlshash: tlsHashForDomain(domainId)
-        };
     }
 
     function handlePermissions(command, session, webserver) {
@@ -394,18 +259,12 @@ module.exports.printercontrol = function (parent) {
                     fail(session, operation, "MeshAgent is offline");
                     return;
                 }
-                if (!obj.deployment) {
-                    fail(session, operation, "Automatic helper deployment is unavailable: " + (obj.deploymentError || "missing deployment asset"));
-                    return;
-                }
-
                 var requestId = crypto.randomBytes(18).toString("hex");
                 var timer = setTimeout(function () {
                     var pending = obj.pending[requestId];
                     if (!pending) return;
-                    if (pending.downloadTimer) clearTimeout(pending.downloadTimer);
                     delete obj.pending[requestId];
-                    fail(pending.session, pending.operation, "Printer helper request timed out", requestId);
+                    fail(pending.session, pending.operation, "Printer operation timed out", requestId);
                 }, 180000);
 
                 obj.pending[requestId] = {
@@ -414,8 +273,6 @@ module.exports.printercontrol = function (parent) {
                     params: command.params || {},
                     session: session,
                     userid: user._id,
-                    bootstrapSent: false,
-                    downloadTimer: null,
                     timer: timer
                 };
 
@@ -424,8 +281,7 @@ module.exports.printercontrol = function (parent) {
                     plugin: "printercontrol",
                     pluginaction: operation,
                     params: command.params || {},
-                    requestId: requestId,
-                    bootstrap: publicDeploymentManifest()
+                    requestId: requestId
                 });
                 if (!sent) {
                     clearTimeout(timer);
@@ -436,57 +292,6 @@ module.exports.printercontrol = function (parent) {
                 fail(session, operation, permissionError.message || permissionError);
             });
         });
-    }
-
-    function handleBootstrapRequired(command, agent) {
-        if (typeof command.requestId !== "string") return;
-        var pending = obj.pending[command.requestId];
-        if (!pending || pending.bootstrapSent) return;
-        if (!sourceMatchesPending(command, agent, pending)) {
-            obj.debug("plugin:printercontrol", "Dropped helper deployment request with mismatched node id");
-            return;
-        }
-        if (!obj.deployment || command.version !== obj.deployment.version) {
-            finishPendingWithError(command.requestId, "Agent requested an unknown helper version");
-            return;
-        }
-
-        var downloadCommand;
-        try {
-            downloadCommand = createAgentDownloadCommand(pending.nodeid, command.stagingPath, command.requestId);
-        } catch (ex) {
-            finishPendingWithError(command.requestId, ex.message || ex);
-            return;
-        }
-
-        pending.bootstrapSent = true;
-        pending.stagingPath = command.stagingPath;
-        pending.downloadLastSize = -1;
-        pending.downloadStable = false;
-        if (!sendToAgent(pending.nodeid, downloadCommand)) {
-            finishPendingWithError(command.requestId, "Unable to start the helper download");
-            return;
-        }
-        scheduleDownloadCheck(command.requestId, 750);
-    }
-
-    function handleBootstrapPending(command, agent) {
-        if (typeof command.requestId !== "string") return;
-        var pending = obj.pending[command.requestId];
-        if (!pending || !pending.bootstrapSent) return;
-        if (!sourceMatchesPending(command, agent, pending)) return;
-        if (!obj.deployment || command.version !== obj.deployment.version || command.stagingPath !== pending.stagingPath) {
-            finishPendingWithError(command.requestId, "Agent returned an invalid helper download status");
-            return;
-        }
-        var size = Number(command.size);
-        if (!isFinite(size) || size < -1 || size > obj.deployment.size) {
-            finishPendingWithError(command.requestId, "Downloaded helper exceeded the deployment manifest size");
-            return;
-        }
-        pending.downloadStable = (size === obj.deployment.size && pending.downloadLastSize === obj.deployment.size);
-        pending.downloadLastSize = size;
-        scheduleDownloadCheck(command.requestId, pending.downloadStable ? 250 : 750);
     }
 
     function handleAgentResult(command, agent) {
@@ -500,7 +305,6 @@ module.exports.printercontrol = function (parent) {
         }
 
         clearTimeout(pending.timer);
-        if (pending.downloadTimer) clearTimeout(pending.downloadTimer);
         delete obj.pending[command.requestId];
         sendToSession(pending.session, browserMessage("result", {
             requestId: command.requestId,
@@ -516,13 +320,7 @@ module.exports.printercontrol = function (parent) {
 
         // Agent-originated messages do not have a logged-in user attached.
         if (!myparent || !myparent.user) {
-            if (command.pluginaction === "bootstrapRequired") {
-                handleBootstrapRequired(command, myparent);
-            } else if (command.pluginaction === "bootstrapPending") {
-                handleBootstrapPending(command, myparent);
-            } else {
-                handleAgentResult(command, myparent);
-            }
+            handleAgentResult(command, myparent);
             return;
         }
 

@@ -1,18 +1,17 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "author": "Custom MeshCentral Integration",
   "description": "Secure printer, print-job and Print Spooler management for Windows endpoints.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
-  "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/CHANGELOG.md",
-  "configUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/config.json",
+  "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",
+  "configUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/config.json",
   "downloadUrl": "https://github.com/stavila0170/meshcentral-printercontrol/archive/refs/heads/main.zip",
   "repository": {
     "type": "git",
     "url": "https://github.com/stavila0170/meshcentral-printercontrol.git"
   },
-  "versionHistoryUrl": "https://api.github.com/repos/stavila0170/meshcentral-printercontrol/tags",
   "meshCentralCompat": ">=1.1.58"
 }
