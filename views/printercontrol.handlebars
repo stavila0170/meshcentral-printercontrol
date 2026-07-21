@@ -53,7 +53,7 @@
 <body onload="printerControlOnLoad()">
     <div class="toolbar">
         <strong>Print Spooler:</strong>
-        <span id="spoolerBadge" class="badge unknown">Unknown3</span>
+        <span id="spoolerBadge" class="badge unknown">Unknown</span>
         <button id="refreshBtn" onclick="PrinterControl.refresh()">Refresh</button>
         <button data-permission="manage_spooler" onclick="PrinterControl.run('spoolerStart',{})">Start</button>
         <button data-permission="manage_spooler" onclick="PrinterControl.run('spoolerStop',{})">Stop</button>
@@ -110,7 +110,10 @@ var PrinterControl = (function () {
         permissions: [],
         inventory: null,
         selectedPrinter: null,
-        preserveSpoolerBadgeOnInventoryFailure: false
+        preserveSpoolerBadgeOnInventoryFailure: false,
+        inventoryRequestInFlight: false,
+        permissionsLoaded: false,
+        autoRefreshTimer: null
     };
 
     function hasPermission(name) { return state.permissions.indexOf(name) >= 0; }
@@ -132,7 +135,7 @@ var PrinterControl = (function () {
 
     function setSpoolerBadge(status) {
         var badge = document.getElementById("spoolerBadge");
-        var value = String(status || "Unknown3").trim();
+        var value = String(status || "Unknown").trim();
         var normalized = value.toLowerCase();
 
         badge.textContent = value;
@@ -146,10 +149,17 @@ var PrinterControl = (function () {
     }
 
     function send(operation, params, options) {
-        if (!state.nodeid) { setMessage("Missing node identifier.", "error"); return; }
+        if (!state.nodeid) { setMessage("Missing node identifier.", "error"); return false; }
         options = options || {};
 
+        // Inventory can take longer than the 2-second polling interval. Never
+        // start a second request while the previous one is still pending.
         if (operation === "inventory") {
+            if (state.inventoryRequestInFlight) {
+                if (!options.silent) setMessage("Inventory refresh is already running.");
+                return false;
+            }
+            state.inventoryRequestInFlight = true;
             state.preserveSpoolerBadgeOnInventoryFailure = options.preserveSpoolerBadge === true;
             if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Checking...");
         } else if (operation === "spoolerStart") {
@@ -160,7 +170,7 @@ var PrinterControl = (function () {
             setSpoolerBadge("Restarting...");
         }
 
-        setMessage("Running " + operation + "...");
+        if (!options.silent) setMessage("Running " + operation + "...");
         parent.meshserver.send({
             action: "plugin",
             plugin: "printercontrol",
@@ -168,6 +178,7 @@ var PrinterControl = (function () {
             nodeid: state.nodeid,
             params: params || {}
         });
+        return true;
     }
 
     function textCell(row, value) {
@@ -306,25 +317,37 @@ var PrinterControl = (function () {
 
     function handleMessage(message) {
         if (!message || message.nodeid && message.nodeid !== state.nodeid) return;
+
         if (message.type === "permissions") {
+            var firstPermissionsResult = !state.permissionsLoaded;
+            var wasOnline = state.online;
             state.online = message.online === true;
             state.permissions = Array.isArray(message.permissions) ? message.permissions : [];
+            state.permissionsLoaded = true;
+
             var online = document.getElementById("onlineBadge");
             online.textContent = state.online ? "Agent online" : "Agent offline";
             online.className = "badge " + (state.online ? "ok" : "bad");
             updateButtons();
+
             if (!hasPermission("can_view")) {
                 setMessage("Access denied. Grant the 'View printers' plugin permission for this user, group or device.", "error");
             } else if (!state.online) {
+                setSpoolerBadge("Unknown");
                 setMessage("MeshAgent is offline.", "error");
-            } else {
-                refresh();
+            } else if (firstPermissionsResult || !wasOnline) {
+                // Initial load or agent reconnection. Periodic permission checks
+                // must not start a duplicate inventory request every time.
+                refresh(false, firstPermissionsResult === false);
             }
             return;
         }
+
         if (message.type !== "result") return;
+
         if (!message.success) {
             if (message.operation === "inventory") {
+                state.inventoryRequestInFlight = false;
                 if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Unknown");
                 state.preserveSpoolerBadgeOnInventoryFailure = false;
             } else if (message.operation === "spoolerStart" || message.operation === "spoolerStop" || message.operation === "spoolerRestart") {
@@ -333,34 +356,67 @@ var PrinterControl = (function () {
             setMessage(message.error || "Printer operation failed.", "error");
             return;
         }
-        setMessage((message.operation || "Operation") + " completed.", "success");
+
         if (message.operation === "inventory") {
+            state.inventoryRequestInFlight = false;
             renderInventory(message.data);
-        } else if (message.operation === "jobs") {
+            return;
+        }
+
+        setMessage((message.operation || "Operation") + " completed.", "success");
+        if (message.operation === "jobs") {
             renderJobs(message.data);
         } else if (message.operation === "cancelJob" || message.operation === "pauseJob" || message.operation === "resumeJob") {
             reloadJobs();
         } else if (message.operation === "spoolerStop") {
             setSpoolerBadge("Stopped");
-            refresh(true);
+            refresh(true, true);
         } else if (message.operation === "spoolerStart") {
             setSpoolerBadge("Running");
-            refresh(true);
+            refresh(true, true);
         } else if (message.operation === "spoolerRestart") {
             setSpoolerBadge("Running");
-            refresh(true);
+            refresh(true, true);
         } else {
-            refresh();
+            refresh(false, true);
         }
     }
 
-    function refresh(preserveSpoolerBadge) {
-        send("inventory", {}, { preserveSpoolerBadge: preserveSpoolerBadge === true });
+    function refresh(preserveSpoolerBadge, silent) {
+        if (!state.online || !hasPermission("can_view")) return false;
+        return send("inventory", {}, {
+            preserveSpoolerBadge: preserveSpoolerBadge === true,
+            silent: silent === true
+        });
     }
+
     function reloadJobs() { if (state.selectedPrinter) loadJobs(state.selectedPrinter); }
 
     function requestPermissions() {
+        if (!state.nodeid) return;
         parent.meshserver.send({ action:"plugin", plugin:"printercontrol", pluginaction:"getPermissions", nodeid:state.nodeid });
+    }
+
+    function autoRefreshTick() {
+        // Do not poll while this iframe/tab is hidden. This avoids unnecessary
+        // PowerShell inventory calls when the Printers page is not visible.
+        if (document.hidden) return;
+
+        // Refresh Agent online/offline state and, when possible, the printer
+        // inventory/Spooler status. refresh() skips overlapping requests.
+        requestPermissions();
+        refresh(true, true);
+    }
+
+    function startAutoRefresh() {
+        if (state.autoRefreshTimer != null) return;
+        state.autoRefreshTimer = window.setInterval(autoRefreshTick, 2000);
+    }
+
+    function stopAutoRefresh() {
+        if (state.autoRefreshTimer == null) return;
+        window.clearInterval(state.autoRefreshTimer);
+        state.autoRefreshTimer = null;
     }
 
     return {
@@ -370,7 +426,9 @@ var PrinterControl = (function () {
         reloadJobs: reloadJobs,
         run: send,
         clearQueue: clearQueue,
-        addTcpPrinter: addTcpPrinter
+        addTcpPrinter: addTcpPrinter,
+        startAutoRefresh: startAutoRefresh,
+        stopAutoRefresh: stopAutoRefresh
     };
 })();
 
@@ -380,6 +438,8 @@ function printerControlOnLoad() {
         PrinterControl.handleMessage(message);
     };
     PrinterControl.requestPermissions();
+    PrinterControl.startAutoRefresh();
+    window.addEventListener("beforeunload", PrinterControl.stopAutoRefresh);
 }
 </script>
 </body>
