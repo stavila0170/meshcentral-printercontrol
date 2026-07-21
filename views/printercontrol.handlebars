@@ -15,9 +15,10 @@
         button:disabled { opacity:.45; cursor:not-allowed; }
         button.danger { color:var(--danger); border-color:#d92d20; }
         button.small { padding:3px 7px; font-size:12px; }
-        .badge { display:inline-block; padding:3px 8px; border-radius:999px; font-weight:600; background:#d1fadf; }
+        .badge { display:inline-block; padding:3px 8px; border:1px solid #98a2b3; border-radius:999px; font-weight:600; color:#344054; background:#eaecf0; }
         .badge.ok { color:var(--ok); background:#d1fadf; }
-        .badge.bad { color:var(--danger); background:red; }
+        .badge.bad { color:var(--danger); background:#fee4e2; }
+        .badge.unknown { color:#344054; background:#eaecf0; border:1px solid #98a2b3; }
         .message { min-height:34px; margin:9px 0; padding:8px 10px; border-radius:4px; background:#eef4ff; }
         .message.error { color:var(--danger); background:#fee4e2; }
         .message.success { color:var(--ok); background:#d1fadf; }
@@ -44,20 +45,22 @@
             button,input,select { color:#eee; background:#303030; border-color:#666; }
             th { background:#303030; } td,th { border-bottom-color:#444; } tbody tr:hover { background:#26374a; }
             .message { background:#26374a; } .muted { color:#aaa; }
+            .badge { color:#f2f4f7; background:#475467; border-color:#667085; }
+            .badge.unknown { color:#f2f4f7; background:#475467; border-color:#667085; }
         }
     </style>
 </head>
 <body onload="printerControlOnLoad()">
     <div class="toolbar">
         <strong>Print Spooler:</strong>
-        <span id="spoolerBadge" class="badge">Unknown</span>
+        <span id="spoolerBadge" class="badge unknown">Unknown</span>
         <button id="refreshBtn" onclick="PrinterControl.refresh()">Refresh</button>
         <button data-permission="manage_spooler" onclick="PrinterControl.run('spoolerStart',{})">Start</button>
         <button data-permission="manage_spooler" onclick="PrinterControl.run('spoolerStop',{})">Stop</button>
         <button data-permission="manage_spooler" onclick="PrinterControl.run('spoolerRestart',{})">Restart</button>
         <button class="danger" data-permission="manage_spooler" onclick="PrinterControl.clearQueue()">Clear queue</button>
         <span class="spacer"></span>
-        <span id="onlineBadge" class="badge">Checking agent...</span>
+        <span id="onlineBadge" class="badge unknown">Checking agent...</span>
     </div>
 
     <div id="message" class="message">Loading permissions...</div>
@@ -106,7 +109,8 @@ var PrinterControl = (function () {
         online: false,
         permissions: [],
         inventory: null,
-        selectedPrinter: null
+        selectedPrinter: null,
+        preserveSpoolerBadgeOnInventoryFailure: false
     };
 
     function hasPermission(name) { return state.permissions.indexOf(name) >= 0; }
@@ -126,8 +130,36 @@ var PrinterControl = (function () {
         document.getElementById("jobsRefresh").disabled = !state.online || !hasPermission("can_view") || !state.selectedPrinter;
     }
 
-    function send(operation, params) {
+    function setSpoolerBadge(status) {
+        var badge = document.getElementById("spoolerBadge");
+        var value = String(status || "Unknown").trim();
+        var normalized = value.toLowerCase();
+
+        badge.textContent = value;
+        if (normalized === "running") {
+            badge.className = "badge ok";
+        } else if (normalized === "stopped") {
+            badge.className = "badge bad";
+        } else {
+            badge.className = "badge unknown";
+        }
+    }
+
+    function send(operation, params, options) {
         if (!state.nodeid) { setMessage("Missing node identifier.", "error"); return; }
+        options = options || {};
+
+        if (operation === "inventory") {
+            state.preserveSpoolerBadgeOnInventoryFailure = options.preserveSpoolerBadge === true;
+            if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Checking...");
+        } else if (operation === "spoolerStart") {
+            setSpoolerBadge("Starting...");
+        } else if (operation === "spoolerStop") {
+            setSpoolerBadge("Stopping...");
+        } else if (operation === "spoolerRestart") {
+            setSpoolerBadge("Restarting...");
+        }
+
         setMessage("Running " + operation + "...");
         parent.meshserver.send({
             action: "plugin",
@@ -158,9 +190,8 @@ var PrinterControl = (function () {
     function renderInventory(data) {
         state.inventory = data || {};
         var spooler = data && data.spooler ? data.spooler.status : "Unknown";
-        var spoolerBadge = document.getElementById("spoolerBadge");
-        spoolerBadge.textContent = spooler;
-        spoolerBadge.className = "badge " + (String(spooler).toLowerCase() === "running" ? "ok" : "bad");
+        setSpoolerBadge(spooler);
+        state.preserveSpoolerBadgeOnInventoryFailure = false;
 
         var drivers = data && Array.isArray(data.drivers) ? data.drivers : [];
         var driverList = document.getElementById("driverList");
@@ -293,6 +324,12 @@ var PrinterControl = (function () {
         }
         if (message.type !== "result") return;
         if (!message.success) {
+            if (message.operation === "inventory") {
+                if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Unknown");
+                state.preserveSpoolerBadgeOnInventoryFailure = false;
+            } else if (message.operation === "spoolerStart" || message.operation === "spoolerStop" || message.operation === "spoolerRestart") {
+                setSpoolerBadge("Unknown");
+            }
             setMessage(message.error || "Printer operation failed.", "error");
             return;
         }
@@ -303,12 +340,23 @@ var PrinterControl = (function () {
             renderJobs(message.data);
         } else if (message.operation === "cancelJob" || message.operation === "pauseJob" || message.operation === "resumeJob") {
             reloadJobs();
+        } else if (message.operation === "spoolerStop") {
+            setSpoolerBadge("Stopped");
+            refresh(true);
+        } else if (message.operation === "spoolerStart") {
+            setSpoolerBadge("Running");
+            refresh(true);
+        } else if (message.operation === "spoolerRestart") {
+            setSpoolerBadge("Running");
+            refresh(true);
         } else {
             refresh();
         }
     }
 
-    function refresh() { send("inventory", {}); }
+    function refresh(preserveSpoolerBadge) {
+        send("inventory", {}, { preserveSpoolerBadge: preserveSpoolerBadge === true });
+    }
     function reloadJobs() { if (state.selectedPrinter) loadJobs(state.selectedPrinter); }
 
     function requestPermissions() {
