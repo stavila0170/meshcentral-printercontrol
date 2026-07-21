@@ -32,6 +32,7 @@
         th { position:sticky; top:0; z-index:1; background:#eceff2; }
         tbody tr:hover { background:#f7faff; }
         .empty { padding:20px; color:#666; text-align:center; }
+        .empty.error-text { color:var(--danger); }
         details { margin-top:10px; border:1px solid var(--border); border-radius:6px; padding:8px 10px; }
         summary { cursor:pointer; font-weight:600; }
         .form-grid { display:grid; grid-template-columns:repeat(4,minmax(140px,1fr)); gap:8px; margin-top:10px; }
@@ -114,6 +115,7 @@ var PrinterControl = (function () {
         inventoryRequestInFlight: false,
         jobsRequestInFlight: false,
         jobsRequestSilent: false,
+        jobsRequestStartedAt: 0,
         permissionsLoaded: false,
         autoRefreshTimer: null,
         jobsRefreshTimer: null
@@ -166,10 +168,17 @@ var PrinterControl = (function () {
             state.preserveSpoolerBadgeOnInventoryFailure = options.preserveSpoolerBadge === true;
             if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Checking...");
         } else if (operation === "jobs") {
-            // Print-job polling runs every second. Never overlap queue requests.
-            if (state.jobsRequestInFlight) return false;
+            // Print-job polling runs every second. Never overlap a healthy request.
+            // Recover automatically if a previous browser request became stuck.
+            if (state.jobsRequestInFlight) {
+                if ((Date.now() - state.jobsRequestStartedAt) < 10000) return false;
+                state.jobsRequestInFlight = false;
+                state.jobsRequestSilent = false;
+            }
             state.jobsRequestInFlight = true;
             state.jobsRequestSilent = options.silent === true;
+            state.jobsRequestStartedAt = Date.now();
+            if (!state.jobsRequestSilent) showJobsPlaceholder("Loading print jobs...", false);
         } else if (operation === "spoolerStart") {
             setSpoolerBadge("Starting...");
         } else if (operation === "spoolerStop") {
@@ -252,11 +261,38 @@ var PrinterControl = (function () {
         });
     }
 
+    function showJobsPlaceholder(text, isError) {
+        var body = document.getElementById("jobRows");
+        body.textContent = "";
+        var row = document.createElement("tr");
+        var cell = textCell(row, text);
+        cell.colSpan = 7;
+        cell.className = "empty" + (isError ? " error-text" : "");
+        body.appendChild(row);
+    }
+
+    function getJobValue(job, names, fallback) {
+        if (!job || typeof job !== "object") return fallback;
+        for (var i = 0; i < names.length; i++) {
+            if (job[names[i]] !== undefined && job[names[i]] !== null) return job[names[i]];
+        }
+        return fallback;
+    }
+
+    function normalizeJobs(data) {
+        var raw = data ? data.jobs : null;
+        if (Array.isArray(raw)) return raw;
+        // PowerShell/ConvertTo-Json can return a single queue item as an object
+        // instead of an array. Treat that object as a one-item queue.
+        if (raw && typeof raw === "object") return [raw];
+        return [];
+    }
+
     function renderJobs(data) {
-        state.selectedPrinter = data ? data.printerName : state.selectedPrinter;
+        if (data && data.printerName) state.selectedPrinter = data.printerName;
         document.getElementById("jobsTitle").textContent = "Print jobs" + (state.selectedPrinter ? " — " + state.selectedPrinter : "");
         updateButtons();
-        var jobs = data && Array.isArray(data.jobs) ? data.jobs : [];
+        var jobs = normalizeJobs(data);
         var body = document.getElementById("jobRows");
         body.textContent = "";
         if (!jobs.length) {
@@ -269,17 +305,25 @@ var PrinterControl = (function () {
         }
         jobs.forEach(function (job) {
             var row = document.createElement("tr");
-            textCell(row, job.id);
-            textCell(row, job.documentName || "");
-            textCell(row, job.userName || "");
-            textCell(row, job.jobStatus || "");
-            textCell(row, (job.pagesPrinted || 0) + "/" + (job.totalPages || 0));
-            textCell(row, job.size == null ? "" : job.size);
+            var jobId = getJobValue(job, ["id", "Id", "ID", "jobId", "JobId"], "");
+            var documentName = getJobValue(job, ["documentName", "DocumentName", "document", "Document"], "");
+            var userName = getJobValue(job, ["userName", "UserName", "user", "User"], "");
+            var jobStatus = getJobValue(job, ["jobStatus", "JobStatus", "status", "Status"], "");
+            var pagesPrinted = getJobValue(job, ["pagesPrinted", "PagesPrinted"], 0);
+            var totalPages = getJobValue(job, ["totalPages", "TotalPages"], 0);
+            var size = getJobValue(job, ["size", "Size", "jobSize", "JobSize"], "");
+
+            textCell(row, jobId);
+            textCell(row, documentName);
+            textCell(row, userName);
+            textCell(row, jobStatus);
+            textCell(row, pagesPrinted + "/" + totalPages);
+            textCell(row, size);
             var actions = document.createElement("td");
             actions.className = "actions";
-            actions.appendChild(button("Pause", "manage_jobs", function () { jobAction("pauseJob", job.id); }));
-            actions.appendChild(button("Resume", "manage_jobs", function () { jobAction("resumeJob", job.id); }));
-            actions.appendChild(button("Cancel", "manage_jobs", function () { jobAction("cancelJob", job.id); }, true));
+            actions.appendChild(button("Pause", "manage_jobs", function () { jobAction("pauseJob", jobId); }));
+            actions.appendChild(button("Resume", "manage_jobs", function () { jobAction("resumeJob", jobId); }));
+            actions.appendChild(button("Cancel", "manage_jobs", function () { jobAction("cancelJob", jobId); }, true));
             row.appendChild(actions);
             body.appendChild(row);
         });
@@ -344,6 +388,7 @@ var PrinterControl = (function () {
                 state.inventoryRequestInFlight = false;
                 state.jobsRequestInFlight = false;
                 state.jobsRequestSilent = false;
+                state.jobsRequestStartedAt = 0;
                 setSpoolerBadge("Unknown");
                 setMessage("MeshAgent is offline.", "error");
             } else if (firstPermissionsResult || !wasOnline) {
@@ -366,6 +411,8 @@ var PrinterControl = (function () {
                 state.jobsRequestInFlight = false;
                 suppressErrorMessage = state.jobsRequestSilent;
                 state.jobsRequestSilent = false;
+                state.jobsRequestStartedAt = 0;
+                showJobsPlaceholder(message.error || "Unable to load print jobs.", true);
             } else if (message.operation === "spoolerStart" || message.operation === "spoolerStop" || message.operation === "spoolerRestart") {
                 setSpoolerBadge("Unknown");
             }
@@ -383,7 +430,8 @@ var PrinterControl = (function () {
             var silentJobsResult = state.jobsRequestSilent;
             state.jobsRequestInFlight = false;
             state.jobsRequestSilent = false;
-            if (!silentJobsResult) setMessage("jobs completed.", "success");
+            state.jobsRequestStartedAt = 0;
+            if (!silentJobsResult) setMessage("Print jobs loaded.", "success");
             renderJobs(message.data);
             return;
         }
