@@ -112,8 +112,11 @@ var PrinterControl = (function () {
         selectedPrinter: null,
         preserveSpoolerBadgeOnInventoryFailure: false,
         inventoryRequestInFlight: false,
+        jobsRequestInFlight: false,
+        jobsRequestSilent: false,
         permissionsLoaded: false,
-        autoRefreshTimer: null
+        autoRefreshTimer: null,
+        jobsRefreshTimer: null
     };
 
     function hasPermission(name) { return state.permissions.indexOf(name) >= 0; }
@@ -162,6 +165,11 @@ var PrinterControl = (function () {
             state.inventoryRequestInFlight = true;
             state.preserveSpoolerBadgeOnInventoryFailure = options.preserveSpoolerBadge === true;
             if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Checking...");
+        } else if (operation === "jobs") {
+            // Print-job polling runs every second. Never overlap queue requests.
+            if (state.jobsRequestInFlight) return false;
+            state.jobsRequestInFlight = true;
+            state.jobsRequestSilent = options.silent === true;
         } else if (operation === "spoolerStart") {
             setSpoolerBadge("Starting...");
         } else if (operation === "spoolerStop") {
@@ -277,10 +285,10 @@ var PrinterControl = (function () {
         });
     }
 
-    function loadJobs(printerName) {
+    function loadJobs(printerName, silent) {
         state.selectedPrinter = printerName;
         updateButtons();
-        send("jobs", { printerName: printerName });
+        send("jobs", { printerName: printerName }, { silent: silent === true });
     }
 
     function jobAction(operation, jobId) {
@@ -333,6 +341,9 @@ var PrinterControl = (function () {
             if (!hasPermission("can_view")) {
                 setMessage("Access denied. Grant the 'View printers' plugin permission for this user, group or device.", "error");
             } else if (!state.online) {
+                state.inventoryRequestInFlight = false;
+                state.jobsRequestInFlight = false;
+                state.jobsRequestSilent = false;
                 setSpoolerBadge("Unknown");
                 setMessage("MeshAgent is offline.", "error");
             } else if (firstPermissionsResult || !wasOnline) {
@@ -346,14 +357,19 @@ var PrinterControl = (function () {
         if (message.type !== "result") return;
 
         if (!message.success) {
+            var suppressErrorMessage = false;
             if (message.operation === "inventory") {
                 state.inventoryRequestInFlight = false;
                 if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Unknown");
                 state.preserveSpoolerBadgeOnInventoryFailure = false;
+            } else if (message.operation === "jobs") {
+                state.jobsRequestInFlight = false;
+                suppressErrorMessage = state.jobsRequestSilent;
+                state.jobsRequestSilent = false;
             } else if (message.operation === "spoolerStart" || message.operation === "spoolerStop" || message.operation === "spoolerRestart") {
                 setSpoolerBadge("Unknown");
             }
-            setMessage(message.error || "Printer operation failed.", "error");
+            if (!suppressErrorMessage) setMessage(message.error || "Printer operation failed.", "error");
             return;
         }
 
@@ -363,11 +379,18 @@ var PrinterControl = (function () {
             return;
         }
 
-        setMessage((message.operation || "Operation") + " completed.", "success");
         if (message.operation === "jobs") {
+            var silentJobsResult = state.jobsRequestSilent;
+            state.jobsRequestInFlight = false;
+            state.jobsRequestSilent = false;
+            if (!silentJobsResult) setMessage("jobs completed.", "success");
             renderJobs(message.data);
-        } else if (message.operation === "cancelJob" || message.operation === "pauseJob" || message.operation === "resumeJob") {
-            reloadJobs();
+            return;
+        }
+
+        setMessage((message.operation || "Operation") + " completed.", "success");
+        if (message.operation === "cancelJob" || message.operation === "pauseJob" || message.operation === "resumeJob") {
+            reloadJobs(false);
         } else if (message.operation === "spoolerStop") {
             setSpoolerBadge("Stopped");
             refresh(true, true);
@@ -390,7 +413,9 @@ var PrinterControl = (function () {
         });
     }
 
-    function reloadJobs() { if (state.selectedPrinter) loadJobs(state.selectedPrinter); }
+    function reloadJobs(silent) {
+        if (state.selectedPrinter) loadJobs(state.selectedPrinter, silent === true);
+    }
 
     function requestPermissions() {
         if (!state.nodeid) return;
@@ -408,15 +433,31 @@ var PrinterControl = (function () {
         refresh(true, true);
     }
 
+    function autoRefreshJobsTick() {
+        // Poll only the queue selected with the Jobs button. If no printer is
+        // selected, no queue request is sent. send() skips overlapping calls.
+        if (document.hidden || !state.online || !hasPermission("can_view") || !state.selectedPrinter) return;
+        reloadJobs(true);
+    }
+
     function startAutoRefresh() {
-        if (state.autoRefreshTimer != null) return;
-        state.autoRefreshTimer = window.setInterval(autoRefreshTick, 2000);
+        if (state.autoRefreshTimer == null) {
+            state.autoRefreshTimer = window.setInterval(autoRefreshTick, 2000);
+        }
+        if (state.jobsRefreshTimer == null) {
+            state.jobsRefreshTimer = window.setInterval(autoRefreshJobsTick, 1000);
+        }
     }
 
     function stopAutoRefresh() {
-        if (state.autoRefreshTimer == null) return;
-        window.clearInterval(state.autoRefreshTimer);
-        state.autoRefreshTimer = null;
+        if (state.autoRefreshTimer != null) {
+            window.clearInterval(state.autoRefreshTimer);
+            state.autoRefreshTimer = null;
+        }
+        if (state.jobsRefreshTimer != null) {
+            window.clearInterval(state.jobsRefreshTimer);
+            state.jobsRefreshTimer = null;
+        }
     }
 
     return {
