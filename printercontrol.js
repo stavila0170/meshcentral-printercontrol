@@ -16,7 +16,7 @@ module.exports.printercontrol = function (parent) {
     obj.debug = obj.meshServer.debug;
     obj.VIEWS = __dirname + "/views/";
     obj.pending = Object.create(null);
-    obj.exports = ["onDeviceRefreshEnd"];
+    obj.exports = ["onWebUIStartupEnd", "onDeviceRefreshEnd"];
 
     var ACTION_PERMISSIONS = {
         inventory: "can_view",
@@ -77,6 +77,37 @@ module.exports.printercontrol = function (parent) {
 
     // This function is serialized into the MeshCentral web application. Keep it
     // self-contained and use only browser globals supplied by MeshCentral.
+    // MeshCentral creates the plugin-permissions window in the parent page and
+    // gives several elements inline light-theme colors. Inject scoped overrides
+    // so that this core dialog follows MeshCentral's .night theme.
+    obj.onWebUIStartupEnd = function () {
+        var styleId = "printerControlPluginPermissionsDarkMode";
+        if (document.getElementById(styleId)) return;
+
+        var style = document.createElement("style");
+        style.id = styleId;
+        style.type = "text/css";
+        style.textContent = [
+            '.night #pluginPermModal { color:#e8eaed !important; }',
+            '.night #pluginPermModal .modal-content { background:#1f1f1f !important; color:#e8eaed !important; border:1px solid #555 !important; box-shadow:0 12px 34px rgba(0,0,0,.7) !important; }',
+            '.night #pluginPermModal .modal-header, .night #pluginPermModal .modal-body, .night #pluginPermModal .modal-footer { background:#1f1f1f !important; color:#e8eaed !important; border-color:#4b4b4b !important; }',
+            '.night #pluginPermModal [style*="background:#fff"], .night #pluginPermModal [style*="background: #fff"], .night #pluginPermModal [style*="background:#f8f9fa"], .night #pluginPermModal [style*="background: #f8f9fa"] { background:#2a2a2a !important; color:#e8eaed !important; }',
+            '.night #pluginPermModal [style*="#dee2e6"] { border-color:#505050 !important; }',
+            '.night #pluginPermModal [style*="color:#666"], .night #pluginPermModal [style*="color: #666"], .night #pluginPermModal .text-muted { color:#aaa !important; }',
+            '.night #pluginPermModal input, .night #pluginPermModal select, .night #pluginPermModal textarea, .night #pluginPermModal .form-control, .night #pluginPermModal .form-select { background-color:#303030 !important; color:#f1f1f1 !important; border-color:#666 !important; color-scheme:dark; }',
+            '.night #pluginPermModal option { background:#303030 !important; color:#f1f1f1 !important; }',
+            '.night #pluginPermModal input::placeholder, .night #pluginPermModal textarea::placeholder { color:#aaa !important; opacity:1; }',
+            '.night #pluginPermModal .btn-close { filter:invert(1) grayscale(100%) brightness(200%); }',
+            '.night #pluginPermModal .btn-secondary { background:#3b3b3b !important; color:#fff !important; border-color:#666 !important; }',
+            '.night #pluginPermModal .btn-outline-secondary { background:#303030 !important; color:#ddd !important; border-color:#707070 !important; }',
+            '.night #pluginPermModal .btn-outline-primary { background:#24384d !important; color:#8ec5ff !important; border-color:#4a90d9 !important; }',
+            '.night #pluginPermModal .card, .night #pluginPermModal .list-group-item, .night #pluginPermModal .dropdown-menu { background:#292929 !important; color:#e8eaed !important; border-color:#505050 !important; }',
+            '.night #pluginPermModal a { color:#8ec5ff; }'
+        ].join("\n");
+
+        (document.head || document.documentElement).appendChild(style);
+    };
+
     obj.onDeviceRefreshEnd = function (nodeid) {
         if (typeof currentNode === "undefined" || currentNode == null) return;
         // Some freshly connected or older agents do not populate osdesc. In
