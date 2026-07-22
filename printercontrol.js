@@ -72,40 +72,120 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.2 started in fully in-memory agent mode");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.3 started in fully in-memory agent mode");
     };
 
     // This function is serialized into the MeshCentral web application. Keep it
     // self-contained and use only browser globals supplied by MeshCentral.
-    // MeshCentral creates the plugin-permissions window in the parent page and
-    // gives several elements inline light-theme colors. Inject scoped overrides
-    // so that this core dialog follows MeshCentral's .night theme.
+    // The permissions dialog is created by MeshCentral itself, outside the plugin
+    // iframe, and the legacy UI gives many of its elements inline light colors.
+    // Detect the active page palette and mark the dialog when it is inserted.
     obj.onWebUIStartupEnd = function () {
-        var styleId = "printerControlPluginPermissionsDarkMode";
-        if (document.getElementById(styleId)) return;
+        var styleId = "printerControlPluginPermissionsTheme";
 
-        var style = document.createElement("style");
-        style.id = styleId;
-        style.type = "text/css";
-        style.textContent = [
-            '.night #pluginPermModal { color:#e8eaed !important; }',
-            '.night #pluginPermModal .modal-content { background:#1f1f1f !important; color:#e8eaed !important; border:1px solid #555 !important; box-shadow:0 12px 34px rgba(0,0,0,.7) !important; }',
-            '.night #pluginPermModal .modal-header, .night #pluginPermModal .modal-body, .night #pluginPermModal .modal-footer { background:#1f1f1f !important; color:#e8eaed !important; border-color:#4b4b4b !important; }',
-            '.night #pluginPermModal [style*="background:#fff"], .night #pluginPermModal [style*="background: #fff"], .night #pluginPermModal [style*="background:#f8f9fa"], .night #pluginPermModal [style*="background: #f8f9fa"] { background:#2a2a2a !important; color:#e8eaed !important; }',
-            '.night #pluginPermModal [style*="#dee2e6"] { border-color:#505050 !important; }',
-            '.night #pluginPermModal [style*="color:#666"], .night #pluginPermModal [style*="color: #666"], .night #pluginPermModal .text-muted { color:#aaa !important; }',
-            '.night #pluginPermModal input, .night #pluginPermModal select, .night #pluginPermModal textarea, .night #pluginPermModal .form-control, .night #pluginPermModal .form-select { background-color:#303030 !important; color:#f1f1f1 !important; border-color:#666 !important; color-scheme:dark; }',
-            '.night #pluginPermModal option { background:#303030 !important; color:#f1f1f1 !important; }',
-            '.night #pluginPermModal input::placeholder, .night #pluginPermModal textarea::placeholder { color:#aaa !important; opacity:1; }',
-            '.night #pluginPermModal .btn-close { filter:invert(1) grayscale(100%) brightness(200%); }',
-            '.night #pluginPermModal .btn-secondary { background:#3b3b3b !important; color:#fff !important; border-color:#666 !important; }',
-            '.night #pluginPermModal .btn-outline-secondary { background:#303030 !important; color:#ddd !important; border-color:#707070 !important; }',
-            '.night #pluginPermModal .btn-outline-primary { background:#24384d !important; color:#8ec5ff !important; border-color:#4a90d9 !important; }',
-            '.night #pluginPermModal .card, .night #pluginPermModal .list-group-item, .night #pluginPermModal .dropdown-menu { background:#292929 !important; color:#e8eaed !important; border-color:#505050 !important; }',
-            '.night #pluginPermModal a { color:#8ec5ff; }'
-        ].join("\n");
+        function ensureStyle() {
+            if (document.getElementById(styleId)) return;
+            var style = document.createElement("style");
+            style.id = styleId;
+            style.type = "text/css";
+            style.textContent = [
+                '#pluginPermModal.printercontrol-dark { color:#e8eaed !important; }',
+                '#pluginPermModal.printercontrol-dark > div, #pluginPermModal.printercontrol-dark .modal-content { background:#1f1f1f !important; color:#e8eaed !important; border:1px solid #555 !important; box-shadow:0 12px 34px rgba(0,0,0,.7) !important; }',
+                '#pluginPermModal.printercontrol-dark .modal-header, #pluginPermModal.printercontrol-dark .modal-body, #pluginPermModal.printercontrol-dark .modal-footer, #pluginPermModal.printercontrol-dark #pluginPermBody { background:#1f1f1f !important; color:#e8eaed !important; border-color:#4b4b4b !important; }',
+                '#pluginPermModal.printercontrol-dark [style*="background:#fff"], #pluginPermModal.printercontrol-dark [style*="background: #fff"], #pluginPermModal.printercontrol-dark [style*="background:#ffffff"], #pluginPermModal.printercontrol-dark [style*="background: #ffffff"], #pluginPermModal.printercontrol-dark [style*="background:#f8f9fa"], #pluginPermModal.printercontrol-dark [style*="background: #f8f9fa"] { background:#2a2a2a !important; color:#e8eaed !important; }',
+                '#pluginPermModal.printercontrol-dark [style*="#dee2e6"], #pluginPermModal.printercontrol-dark [style*="lightgray"], #pluginPermModal.printercontrol-dark [style*="lightgrey"] { border-color:#505050 !important; }',
+                '#pluginPermModal.printercontrol-dark [style*="color:#666"], #pluginPermModal.printercontrol-dark [style*="color: #666"], #pluginPermModal.printercontrol-dark [style*="color:#333"], #pluginPermModal.printercontrol-dark [style*="color: #333"], #pluginPermModal.printercontrol-dark .text-muted { color:#aaa !important; }',
+                '#pluginPermModal.printercontrol-dark input, #pluginPermModal.printercontrol-dark select, #pluginPermModal.printercontrol-dark textarea, #pluginPermModal.printercontrol-dark .form-control, #pluginPermModal.printercontrol-dark .form-select { background-color:#303030 !important; color:#f1f1f1 !important; border-color:#666 !important; color-scheme:dark; }',
+                '#pluginPermModal.printercontrol-dark option { background:#303030 !important; color:#f1f1f1 !important; }',
+                '#pluginPermModal.printercontrol-dark input::placeholder, #pluginPermModal.printercontrol-dark textarea::placeholder { color:#aaa !important; opacity:1; }',
+                '#pluginPermModal.printercontrol-dark button[onclick*="closePluginPermModal"] { color:#f1f1f1 !important; }',
+                '#pluginPermModal.printercontrol-dark .btn-close { filter:invert(1) grayscale(100%) brightness(200%); }',
+                '#pluginPermModal.printercontrol-dark .btn-secondary { background:#3b3b3b !important; color:#fff !important; border-color:#666 !important; }',
+                '#pluginPermModal.printercontrol-dark .btn-outline-secondary { background:#303030 !important; color:#ddd !important; border-color:#707070 !important; }',
+                '#pluginPermModal.printercontrol-dark .btn-outline-primary { background:#24384d !important; color:#8ec5ff !important; border-color:#4a90d9 !important; }',
+                '#pluginPermModal.printercontrol-dark .card, #pluginPermModal.printercontrol-dark .list-group-item, #pluginPermModal.printercontrol-dark .dropdown-menu, #pluginPermModal.printercontrol-dark .autocomplete-items, #pluginPermModal.printercontrol-dark .autocomplete-items div { background:#292929 !important; color:#e8eaed !important; border-color:#505050 !important; }',
+                '#pluginPermModal.printercontrol-dark a { color:#8ec5ff !important; }'
+            ].join("\n");
+            (document.head || document.documentElement).appendChild(style);
+        }
 
-        (document.head || document.documentElement).appendChild(style);
+        function parseRgb(value) {
+            var match = String(value || "").match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/i);
+            if (!match) return null;
+            return {
+                r: parseInt(match[1], 10),
+                g: parseInt(match[2], 10),
+                b: parseInt(match[3], 10),
+                a: match[4] == null ? 1 : parseFloat(match[4])
+            };
+        }
+
+        function elementSignalsDark(element) {
+            if (!element) return false;
+            var className = " " + String(element.className || "").toLowerCase() + " ";
+            if (className.indexOf(" night ") >= 0 || className.indexOf(" dark ") >= 0 || className.indexOf(" dark-mode ") >= 0 || className.indexOf(" darkmode ") >= 0) return true;
+            try {
+                var rgb = parseRgb(window.getComputedStyle(element).backgroundColor);
+                if (rgb && rgb.a > 0.15) {
+                    var luminance = (0.2126 * rgb.r) + (0.7152 * rgb.g) + (0.0722 * rgb.b);
+                    if (luminance < 105) return true;
+                }
+            } catch (ignore) { }
+            return false;
+        }
+
+        function pageIsDark() {
+            var candidates = [
+                document.body,
+                document.documentElement,
+                document.getElementById("container"),
+                document.getElementById("column_l"),
+                document.getElementById("p42")
+            ];
+            for (var i = 0; i < candidates.length; i++) {
+                if (elementSignalsDark(candidates[i])) return true;
+            }
+            return false;
+        }
+
+        function applyThemeToDialog() {
+            ensureStyle();
+            var modal = document.getElementById("pluginPermModal");
+            if (!modal) return;
+            var dark = pageIsDark();
+            if (dark) {
+                modal.classList.add("printercontrol-dark");
+            } else {
+                modal.classList.remove("printercontrol-dark");
+            }
+        }
+
+        ensureStyle();
+        applyThemeToDialog();
+
+        // The dialog does not exist when the page starts. Watch for its insertion,
+        // and also for a later light/dark theme change.
+        if (!window.__printerControlPermissionsThemeObserver && typeof MutationObserver !== "undefined") {
+            var queued = false;
+            var observer = new MutationObserver(function () {
+                if (queued) return;
+                queued = true;
+                window.setTimeout(function () {
+                    queued = false;
+                    applyThemeToDialog();
+                }, 0);
+            });
+            observer.observe(document.documentElement, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ["class", "style"]
+            });
+            window.__printerControlPermissionsThemeObserver = observer;
+        }
+
+        // Expose a tiny diagnostic helper in the browser console.
+        window.printerControlApplyPermissionsTheme = applyThemeToDialog;
     };
 
     obj.onDeviceRefreshEnd = function (nodeid) {

@@ -1,6 +1,6 @@
-# Mesh Printer Control 0.4.2
+# Mesh Printer Control 0.4.3
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.2 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.3 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
 
 ## Included operations
 
@@ -76,7 +76,7 @@ Use that raw URL when adding the plugin to MeshCentral. The GitHub archive refer
 
 ## Upgrade from 0.3.x
 
-Install 0.4.2 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
+Install 0.4.3 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
 
 ```powershell
 Stop-Service MeshPrinterControl -Force -ErrorAction SilentlyContinue

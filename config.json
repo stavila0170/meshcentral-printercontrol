@@ -1,7 +1,7 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "author": "Custom MeshCentral Integration",
   "description": "Secure printer, print-job and Print Spooler management for Windows endpoints.",
   "hasAdminPanel": false,

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.3
+
+- Apply dark mode to the MeshCentral plugin-permissions dialog in both legacy and modern UI, including dialogs inserted after page startup.
+- Detect dark mode from actual page classes and computed background colors instead of requiring `.night` to be an ancestor of the modal.
+- Report explicit `Get-PrintJob` errors instead of silently presenting an unreadable queue as empty.
+- Avoid querying per-printer jobs during inventory while Print Spooler is stopped.
+
 ## 0.4.2
 
 - Show the Printers device tab when MeshCentral has not populated `currentNode.osdesc` yet.
