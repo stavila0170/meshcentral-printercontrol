@@ -1,8 +1,16 @@
 # Changelog
 
+## 0.4.5
+
+- Remove the one-second automatic Print jobs polling interval.
+- Keep Print jobs updates manual through the **Jobs** and **Refresh jobs** buttons.
+- Continue refreshing agent, Print Spooler and printer inventory status every two seconds.
+
 ## 0.4.4
 
-- Solving dark mode style issues
+- Hide Remote Desktop redirected printers from inventory by filtering the `Remote Desktop Easy Print` driver and `TSnnn` session ports.
+- Hide the redirected-printer driver and transient Terminal Services ports from the add-printer inventory.
+- Reject direct jobs, test-page and delete operations against redirected session printers.
 
 ## 0.4.3
 

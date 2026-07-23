@@ -117,8 +117,7 @@ var PrinterControl = (function () {
         jobsRequestSilent: false,
         jobsRequestStartedAt: 0,
         permissionsLoaded: false,
-        autoRefreshTimer: null,
-        jobsRefreshTimer: null
+        autoRefreshTimer: null
     };
 
     function hasPermission(name) { return state.permissions.indexOf(name) >= 0; }
@@ -168,8 +167,8 @@ var PrinterControl = (function () {
             state.preserveSpoolerBadgeOnInventoryFailure = options.preserveSpoolerBadge === true;
             if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Checking...");
         } else if (operation === "jobs") {
-            // Print-job polling runs every second. Never overlap a healthy request.
-            // Recover automatically if a previous browser request became stuck.
+            // Print-job loading is manual. Prevent duplicate clicks from starting
+            // overlapping queue requests and recover if a request became stuck.
             if (state.jobsRequestInFlight) {
                 if ((Date.now() - state.jobsRequestStartedAt) < 10000) return false;
                 state.jobsRequestInFlight = false;
@@ -481,19 +480,10 @@ var PrinterControl = (function () {
         refresh(true, true);
     }
 
-    function autoRefreshJobsTick() {
-        // Poll only the queue selected with the Jobs button. If no printer is
-        // selected, no queue request is sent. send() skips overlapping calls.
-        if (document.hidden || !state.online || !hasPermission("can_view") || !state.selectedPrinter) return;
-        reloadJobs(true);
-    }
 
     function startAutoRefresh() {
         if (state.autoRefreshTimer == null) {
             state.autoRefreshTimer = window.setInterval(autoRefreshTick, 2000);
-        }
-        if (state.jobsRefreshTimer == null) {
-            state.jobsRefreshTimer = window.setInterval(autoRefreshJobsTick, 1000);
         }
     }
 
@@ -501,10 +491,6 @@ var PrinterControl = (function () {
         if (state.autoRefreshTimer != null) {
             window.clearInterval(state.autoRefreshTimer);
             state.autoRefreshTimer = null;
-        }
-        if (state.jobsRefreshTimer != null) {
-            window.clearInterval(state.jobsRefreshTimer);
-            state.jobsRefreshTimer = null;
         }
     }
 
