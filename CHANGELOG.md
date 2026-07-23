@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.11
+
+- Fix the live watcher exiting immediately with code 0 after startup.
+- Launch the watcher through a short PowerShell bootstrap that first reads the complete program from standard input and then executes it as a ScriptBlock.
+- Closing stdin now completes only the program transfer and no longer terminates the long-running watcher.
+
 ## 0.4.10
 
 - Fix `ManagementException: Unparsable query` when starting live print-job events.
