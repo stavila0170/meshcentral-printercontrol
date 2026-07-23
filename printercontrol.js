@@ -72,7 +72,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.6 started in fully in-memory agent mode");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.7 started in fully in-memory agent mode");
     };
 
     // This function is serialized into the MeshCentral web application. Keep it

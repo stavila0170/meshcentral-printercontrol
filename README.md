@@ -1,6 +1,6 @@
-# Mesh Printer Control 0.4.6
+# Mesh Printer Control 0.4.7
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.6 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.7 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
 
 ## Included operations
 
@@ -16,7 +16,7 @@ The browser cannot submit PowerShell. The server and endpoint accept only the fi
 
 ### Refresh behavior
 
-Version 0.4.6 performs no periodic printer or print-job polling. Inventory is loaded once when the Printers page opens, then updated only through the manual **Refresh** button or once after an operation that changes printer state. Print jobs are loaded only through **Jobs** and **Refresh jobs**.
+Version 0.4.7 performs no periodic printer or print-job polling. Inventory is loaded once when the Printers page opens, then updated only through the manual **Refresh** button or once after an operation that changes printer state. Print jobs are loaded only through **Jobs** and **Refresh jobs**.
 
 ## Requirements
 
@@ -80,7 +80,7 @@ Use that raw URL when adding the plugin to MeshCentral. The GitHub archive refer
 
 ## Upgrade from 0.3.x
 
-Install 0.4.6 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
+Install 0.4.7 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
 
 ```powershell
 Stop-Service MeshPrinterControl -Force -ErrorAction SilentlyContinue

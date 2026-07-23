@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.7
+
+- Fix PowerShell parse failures on MeshAgent caused by passing a command longer than approximately 4 KiB through the Windows process command line.
+- Stream the in-memory PowerShell launcher through standard input using `-Command -`; no endpoint file is created.
+- Retain the 0.4.6 manual-only refresh behavior and redirected-printer filtering.
+
 ## 0.4.6
 
 - Remove the remaining two-second automatic permission, agent-status, Print Spooler and printer-inventory polling.
