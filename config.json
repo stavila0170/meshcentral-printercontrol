@@ -1,9 +1,9 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.11",
+  "version": "0.4.12",
   "author": "Custom MeshCentral Integration",
-  "description": "Secure printer, print-job and Print Spooler management for Windows endpoints.",
+  "description": "Secure Windows printer management for MeshCentral with opt-in, leased live print-job monitoring.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
   "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",

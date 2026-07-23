@@ -17,7 +17,15 @@ module.exports.printercontrol = function (parent) {
     obj.VIEWS = __dirname + "/views/";
     obj.pending = Object.create(null);
     obj.jobSubscriptions = Object.create(null);
+    obj.watcherLeaseRenewed = Object.create(null);
+    obj.subscriptionCleanupTimer = null;
     obj.exports = ["onWebUIStartupEnd", "onDeviceRefreshEnd"];
+
+    var SUBSCRIPTION_TTL_MS = 45000;
+    var SUBSCRIPTION_MAX_MS = 600000;
+    var CLEANUP_INTERVAL_MS = 10000;
+    var AGENT_WATCHER_LEASE_MS = 55000;
+    var AGENT_LEASE_RENEW_MIN_MS = 10000;
 
     var ACTION_PERMISSIONS = {
         inventory: "can_view",
@@ -73,7 +81,11 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.11 started in fully in-memory agent mode");
+        if (obj.subscriptionCleanupTimer == null) {
+            obj.subscriptionCleanupTimer = setInterval(cleanupJobSubscriptions, CLEANUP_INTERVAL_MS);
+            if (obj.subscriptionCleanupTimer && typeof obj.subscriptionCleanupTimer.unref === "function") obj.subscriptionCleanupTimer.unref();
+        }
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.12 started with leased live monitoring");
     };
 
     // This function is serialized into the MeshCentral web application. Keep it
@@ -366,7 +378,15 @@ module.exports.printercontrol = function (parent) {
         return false;
     }
 
-    function sendWatcherControl(nodeid, action, session, userid) {
+    function removeSubscriptionsForSession(nodeid, session) {
+        var bucket = subscriptionBucket(nodeid, false);
+        if (!bucket) return;
+        for (var id in bucket) {
+            if (Object.prototype.hasOwnProperty.call(bucket, id) && bucket[id] && bucket[id].session === session) delete bucket[id];
+        }
+    }
+
+    function sendWatcherControl(nodeid, action, session, userid, params) {
         if (!agentIsOnline(nodeid)) return false;
         var requestId = crypto.randomBytes(18).toString("hex");
         var timer = setTimeout(function () {
@@ -379,6 +399,8 @@ module.exports.printercontrol = function (parent) {
                     success: false,
                     error: "Print-job event watcher timed out"
                 }));
+                removeSubscriptionsForSession(pending.nodeid, pending.session);
+                stopWatcherIfUnused(pending.nodeid);
             }
         }, 30000);
         obj.pending[requestId] = {
@@ -393,7 +415,7 @@ module.exports.printercontrol = function (parent) {
             action: "plugin",
             plugin: "printercontrol",
             pluginaction: action,
-            params: {},
+            params: params || {},
             requestId: requestId
         });
         if (!sent) {
@@ -403,11 +425,57 @@ module.exports.printercontrol = function (parent) {
         return sent;
     }
 
+    function renewWatcherLease(nodeid, force) {
+        if (!agentIsOnline(nodeid)) return false;
+        var now = Date.now();
+        var previous = obj.watcherLeaseRenewed[nodeid] || 0;
+        if (force !== true && (now - previous) < AGENT_LEASE_RENEW_MIN_MS) return true;
+        obj.watcherLeaseRenewed[nodeid] = now;
+        return sendToAgent(nodeid, {
+            action: "plugin",
+            plugin: "printercontrol",
+            pluginaction: "watchJobsKeepAlive",
+            params: { leaseMs: AGENT_WATCHER_LEASE_MS }
+        });
+    }
+
     function stopWatcherIfUnused(nodeid) {
         var bucket = subscriptionBucket(nodeid, false);
         if (bucketHasEntries(bucket)) return;
         delete obj.jobSubscriptions[nodeid];
-        sendWatcherControl(nodeid, "watchJobsStop", null, null);
+        delete obj.watcherLeaseRenewed[nodeid];
+        sendWatcherControl(nodeid, "watchJobsStop", null, null, {});
+    }
+
+    function expireSubscription(nodeid, id, subscription, reason) {
+        var bucket = subscriptionBucket(nodeid, false);
+        if (bucket && bucket[id] === subscription) delete bucket[id];
+        if (subscription && subscription.session) {
+            sendToSession(subscription.session, browserMessage("subscriptionExpired", {
+                nodeid: nodeid,
+                subscriptionId: id,
+                reason: reason || "Live monitoring expired"
+            }));
+        }
+    }
+
+    function cleanupJobSubscriptions() {
+        var now = Date.now();
+        for (var nodeid in obj.jobSubscriptions) {
+            if (!Object.prototype.hasOwnProperty.call(obj.jobSubscriptions, nodeid)) continue;
+            var bucket = obj.jobSubscriptions[nodeid];
+            var online = agentIsOnline(nodeid);
+            for (var id in bucket) {
+                if (!Object.prototype.hasOwnProperty.call(bucket, id)) continue;
+                var sub = bucket[id];
+                var reason = null;
+                if (!online) reason = "MeshAgent went offline; live monitoring was stopped.";
+                else if (!sub || (now - sub.updated) > SUBSCRIPTION_TTL_MS) reason = "Live monitoring heartbeat expired.";
+                else if ((now - sub.created) > SUBSCRIPTION_MAX_MS) reason = "Live monitoring reached the 10-minute safety limit.";
+                if (reason) expireSubscription(nodeid, id, sub, reason);
+            }
+            stopWatcherIfUnused(nodeid);
+        }
     }
 
     function handleJobSubscription(command, session, webserver, subscribe) {
@@ -454,12 +522,14 @@ module.exports.printercontrol = function (parent) {
                     fail(session, operation, "MeshAgent is offline");
                     return;
                 }
+                var now = Date.now();
                 bucket[params.subscriptionId] = {
                     session: session,
                     userid: user._id,
                     printerName: params.printerName,
                     printerNameLower: params.printerName.toLowerCase(),
-                    updated: Date.now()
+                    created: now,
+                    updated: now
                 };
                 sendToSession(session, browserMessage("subscription", {
                     nodeid: command.nodeid,
@@ -468,17 +538,57 @@ module.exports.printercontrol = function (parent) {
                     subscriptionId: params.subscriptionId,
                     printerName: params.printerName
                 }));
-                if (!sendWatcherControl(command.nodeid, "watchJobsStart", session, user._id)) {
+                if (!sendWatcherControl(command.nodeid, "watchJobsStart", session, user._id, { leaseMs: AGENT_WATCHER_LEASE_MS })) {
+                    delete bucket[params.subscriptionId];
                     sendToSession(session, browserMessage("watcherStatus", {
                         nodeid: command.nodeid,
                         success: false,
                         error: "Unable to contact MeshAgent for print-job events"
                     }));
+                    stopWatcherIfUnused(command.nodeid);
                 }
             }).catch(function (permissionError) {
                 fail(session, operation, permissionError.message || permissionError);
             });
         });
+    }
+
+    function handleJobHeartbeat(command, session) {
+        var params = command.params;
+        if (!isValidNodeId(command.nodeid) || !params || typeof params !== "object" || Array.isArray(params) || !validSubscriptionId(params.subscriptionId)) {
+            fail(session, "heartbeatJobs", "Invalid live-monitoring heartbeat");
+            return;
+        }
+        var bucket = subscriptionBucket(command.nodeid, false);
+        var sub = bucket && bucket[params.subscriptionId];
+        var user = session && session.user;
+        if (!sub || sub.session !== session || !user || sub.userid !== user._id) {
+            sendToSession(session, browserMessage("heartbeat", {
+                nodeid: command.nodeid,
+                subscriptionId: params.subscriptionId,
+                success: false,
+                error: "Live monitoring subscription is no longer active"
+            }));
+            return;
+        }
+        var now = Date.now();
+        if ((now - sub.created) > SUBSCRIPTION_MAX_MS) {
+            expireSubscription(command.nodeid, params.subscriptionId, sub, "Live monitoring reached the 10-minute safety limit.");
+            stopWatcherIfUnused(command.nodeid);
+            return;
+        }
+        sub.updated = now;
+        if (!renewWatcherLease(command.nodeid, false)) {
+            expireSubscription(command.nodeid, params.subscriptionId, sub, "Unable to renew the MeshAgent live-monitoring lease.");
+            stopWatcherIfUnused(command.nodeid);
+            return;
+        }
+        sendToSession(session, browserMessage("heartbeat", {
+            nodeid: command.nodeid,
+            subscriptionId: params.subscriptionId,
+            success: true,
+            expiresInMs: Math.max(0, SUBSCRIPTION_MAX_MS - (now - sub.created))
+        }));
     }
 
     function sanitizeJobEvent(command) {
@@ -528,7 +638,11 @@ module.exports.printercontrol = function (parent) {
             for (var id in bucket) {
                 if (!Object.prototype.hasOwnProperty.call(bucket, id)) continue;
                 var sub = bucket[id];
-                if (!sub || sub.printerNameLower !== eventPrinter) continue;
+                if (!sub || (Date.now() - sub.updated) > SUBSCRIPTION_TTL_MS || (Date.now() - sub.created) > SUBSCRIPTION_MAX_MS) {
+                    expireSubscription(nodeid, id, sub, "Live monitoring subscription expired.");
+                    continue;
+                }
+                if (sub.printerNameLower !== eventPrinter) continue;
                 if (!sendToSession(sub.session, browserMessage("jobEvent", {
                     nodeid: nodeid,
                     subscriptionId: id,
@@ -553,6 +667,12 @@ module.exports.printercontrol = function (parent) {
                 }))) {
                     delete statusBucket[subId];
                 }
+            }
+            if (command.success !== true) {
+                delete obj.jobSubscriptions[nodeid];
+                delete obj.watcherLeaseRenewed[nodeid];
+            } else {
+                renewWatcherLease(nodeid, true);
             }
             stopWatcherIfUnused(nodeid);
         }
@@ -669,6 +789,14 @@ module.exports.printercontrol = function (parent) {
                     success: command.success === true,
                     error: command.success === true ? null : String(command.error || "Unable to start print-job watcher")
                 }));
+                if (command.success !== true) {
+                    removeSubscriptionsForSession(pending.nodeid, pending.session);
+                    stopWatcherIfUnused(pending.nodeid);
+                } else if (bucketHasEntries(subscriptionBucket(pending.nodeid, false))) {
+                    renewWatcherLease(pending.nodeid, true);
+                } else {
+                    stopWatcherIfUnused(pending.nodeid);
+                }
             }
             return;
         }
@@ -716,6 +844,10 @@ module.exports.printercontrol = function (parent) {
         }
         if (command.pluginaction === "unsubscribeJobs") {
             handleJobSubscription(command, myparent, grandparent, false);
+            return;
+        }
+        if (command.pluginaction === "heartbeatJobs") {
+            handleJobHeartbeat(command, myparent);
             return;
         }
         handleBrowserOperation(command, myparent, grandparent);

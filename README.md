@@ -1,6 +1,6 @@
-# Mesh Printer Control 0.4.11
+# Mesh Printer Control 0.4.12
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.11 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.12 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
 
 ## Included operations
 
@@ -16,9 +16,9 @@ The browser cannot submit PowerShell. The server and endpoint accept only the fi
 
 ### Refresh and live print-job behavior
 
-Version 0.4.11 performs no periodic browser or server polling. Inventory is loaded once when the Printers page opens, then updated only through the manual **Refresh** button or once after an operation that changes printer state.
+Version 0.4.12 performs no printer-inventory or print-job polling. Inventory is loaded once when the Printers page opens, then updated only through the manual **Refresh** button or once after an operation that changes printer state.
 
-When **Jobs** is pressed for a printer, the browser subscribes to that printer queue. MeshAgent starts one local WMI event watcher only while at least one browser subscription exists. A queue creation, modification or deletion event causes the agent to send a bounded queue snapshot to MeshCentral, and the **Print jobs** table updates automatically without starting a periodic refresh loop. **Refresh jobs** remains available as a manual fallback.
+Pressing **Jobs** loads the selected queue once and does not start background monitoring. Live monitoring is explicitly opt-in through **Start live events**. While enabled, the page sends a lightweight 15-second lease heartbeat; printer inventory and jobs are not polled. Monitoring stops automatically when the Printers iframe is hidden, when the heartbeat is lost, when the browser/server connection disappears, or after a 10-minute safety limit. MeshAgent also enforces an independent endpoint lease and the PowerShell watcher has its own 10-minute deadline, so an orphaned process cannot remain active indefinitely. The first 0.4.12 agent-side operation also performs a narrowly targeted cleanup of legacy watcher processes created by earlier live-monitoring builds. **Refresh jobs** remains available as a manual fallback.
 
 ## Requirements
 
@@ -82,7 +82,7 @@ Use that raw URL when adding the plugin to MeshCentral. The GitHub archive refer
 
 ## Upgrade from 0.3.x
 
-Install 0.4.11 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
+Install 0.4.12 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
 
 ```powershell
 Stop-Service MeshPrinterControl -Force -ErrorAction SilentlyContinue
@@ -90,7 +90,7 @@ sc.exe delete MeshPrinterControl
 Remove-Item "$env:ProgramData\MeshPrinterControl" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-Version 0.4.11 does not recreate this directory.
+Version 0.4.12 does not recreate this directory.
 
 ## Security design
 
@@ -111,7 +111,7 @@ Version 0.4.11 does not recreate this directory.
 - Printer drivers must already be installed. INF upload and driver installation are not included.
 - The transport targets agents connected to the same MeshCentral server process; multi-server peering needs an additional routing adapter.
 - Environments that block Windows PowerShell, WMI event subscriptions or the `PrintManagement` module cannot use the related printer features.
-- Live events start after **Jobs** is selected for a printer. Until then, no queue watcher is active.
+- Live events start only after **Start live events** is pressed for a selected printer. Monitoring stops after 10 minutes and must be enabled again when needed.
 
 ## Development checks
 

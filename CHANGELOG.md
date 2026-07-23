@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.12
+
+- Make live print-job monitoring explicitly opt-in; pressing **Jobs** now performs only a one-time queue load.
+- Add visible **Start live events** / **Stop live events** controls.
+- Stop live monitoring automatically when the Printers iframe becomes hidden.
+- Add a lightweight 15-second browser-to-server heartbeat only while live monitoring is enabled.
+- Expire stale server subscriptions after 45 seconds and enforce a 10-minute maximum live session.
+- Add an independent MeshAgent watcher lease, a PowerShell self-timeout and a 10-minute endpoint hard limit so orphaned PowerShell/WMI processes cannot remain active indefinitely.
+- Perform a narrowly targeted one-time cleanup of legacy watcher processes left by earlier live-monitoring builds.
+- Stop and remove subscriptions when watcher startup fails, the agent goes offline, or the watcher exits.
+- Keep printer inventory and manual queue refresh free of periodic polling.
+
 ## 0.4.11
 
 - Fix the live watcher exiting immediately with code 0 after startup.
