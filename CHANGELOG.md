@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- Solving dark mode style issues
+
 ## 0.4.3
 
 - Apply dark mode to the MeshCentral plugin-permissions dialog in both legacy and modern UI, including dialogs inserted after page startup.
