@@ -1,6 +1,6 @@
-# Mesh Printer Control 0.4.12
+# Mesh Printer Control 0.4.13
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.12 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.13 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
 
 ## Included operations
 
@@ -16,9 +16,9 @@ The browser cannot submit PowerShell. The server and endpoint accept only the fi
 
 ### Refresh and live print-job behavior
 
-Version 0.4.12 performs no printer-inventory or print-job polling. Inventory is loaded once when the Printers page opens, then updated only through the manual **Refresh** button or once after an operation that changes printer state.
+Version 0.4.13 performs no printer-inventory or print-job polling. The plugin iframe is lazy-loaded only after the **Printers** device tab is opened, so viewing a device or starting Desktop does not launch hidden printer work. Inventory is then loaded once, and later updated only through the manual **Refresh** button or once after an operation that changes printer state.
 
-Pressing **Jobs** loads the selected queue once and does not start background monitoring. Live monitoring is explicitly opt-in through **Start live events**. While enabled, the page sends a lightweight 15-second lease heartbeat; printer inventory and jobs are not polled. Monitoring stops automatically when the Printers iframe is hidden, when the heartbeat is lost, when the browser/server connection disappears, or after a 10-minute safety limit. MeshAgent also enforces an independent endpoint lease and the PowerShell watcher has its own 10-minute deadline, so an orphaned process cannot remain active indefinitely. The first 0.4.12 agent-side operation also performs a narrowly targeted cleanup of legacy watcher processes created by earlier live-monitoring builds. **Refresh jobs** remains available as a manual fallback.
+Pressing **Jobs** loads the selected queue once and does not start background monitoring. Live monitoring is explicitly opt-in through **Start live events**. While enabled, the page sends a lightweight 15-second lease heartbeat; printer inventory and jobs are not polled. Monitoring stops immediately when another MeshCentral device tab is selected, and also stops when the heartbeat is lost, when the browser/server connection disappears, or after a 10-minute safety limit. MeshAgent also enforces an independent endpoint lease and the PowerShell watcher has its own 10-minute deadline, so an orphaned process cannot remain active indefinitely. The first 0.4.13 agent-side operation also performs a narrowly targeted cleanup of legacy watcher processes created by earlier live-monitoring builds. **Refresh jobs** remains available as a manual fallback.
 
 ## Requirements
 
@@ -60,7 +60,7 @@ docker cp ".\plugin\printercontrol" meshcentral:/opt/meshcentral/meshcentral-dat
 docker restart meshcentral
 ```
 
-No endpoint installation is needed. Opening **Printers** sends the MeshCore module through the normal MeshAgent update mechanism. For every operation, MeshCore expands its embedded Gzip-compressed PowerShell source directly in memory and invokes it as a script block. It does not create a script, executable, service, staging directory, secret or audit file on the endpoint.
+No endpoint installation is needed. Opening a device does not load the plugin iframe. Selecting **Printers** loads it once and sends the MeshCore module through the normal MeshAgent update mechanism. For every operation, MeshCore expands its embedded Gzip-compressed PowerShell source directly in memory and invokes it as a script block. It does not create a script, executable, service, staging directory, secret or audit file on the endpoint.
 
 Operation audit records are emitted by the server plugin under the `plugin:printercontrol` MeshCentral log category. They contain time, node ID, user ID, operation, outcome and a bounded error message.
 
@@ -82,7 +82,7 @@ Use that raw URL when adding the plugin to MeshCentral. The GitHub archive refer
 
 ## Upgrade from 0.3.x
 
-Install 0.4.12 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
+Install 0.4.13 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
 
 ```powershell
 Stop-Service MeshPrinterControl -Force -ErrorAction SilentlyContinue
@@ -90,7 +90,7 @@ sc.exe delete MeshPrinterControl
 Remove-Item "$env:ProgramData\MeshPrinterControl" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-Version 0.4.12 does not recreate this directory.
+Version 0.4.13 does not recreate this directory.
 
 ## Security design
 

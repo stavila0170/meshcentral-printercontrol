@@ -85,7 +85,7 @@ module.exports.printercontrol = function (parent) {
             obj.subscriptionCleanupTimer = setInterval(cleanupJobSubscriptions, CLEANUP_INTERVAL_MS);
             if (obj.subscriptionCleanupTimer && typeof obj.subscriptionCleanupTimer.unref === "function") obj.subscriptionCleanupTimer.unref();
         }
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.12 started with leased live monitoring");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.13 started with lazy-loaded, non-overlapping printer reads");
     };
 
     // This function is serialized into the MeshCentral web application. Keep it
@@ -177,41 +177,31 @@ module.exports.printercontrol = function (parent) {
         ensureStyle();
         applyThemeToDialog();
 
-        // The dialog does not exist when the page starts. Observe only DOM
-        // insertions plus theme attributes on the page roots. Avoid watching every
-        // style/class mutation in the entire MeshCentral interface.
-        if (!window.__printerControlPermissionsThemeObserver && typeof MutationObserver !== "undefined") {
-            var queued = false;
-            var observer = new MutationObserver(function (mutations) {
+        // Avoid a permanent MutationObserver on MeshCentral's entire DOM. The
+        // permissions window is opened by a user click, so apply the theme only
+        // around that click and keep a manual console helper as a fallback.
+        if (!window.__printerControlPermissionsThemeClickHandler) {
+            var permissionClickHandler = function (event) {
+                var target = event && event.target;
                 var relevant = false;
-                for (var i = 0; i < mutations.length && !relevant; i++) {
-                    var mutation = mutations[i];
-                    if (mutation.type === "attributes") {
+                while (target && target !== document) {
+                    var id = String(target.id || "").toLowerCase();
+                    var text = String(target.textContent || "").replace(/^\s+|\s+$/g, "").toLowerCase();
+                    var onclick = "";
+                    try { onclick = String(target.getAttribute && target.getAttribute("onclick") || "").toLowerCase(); } catch (ignore) { }
+                    if (id.indexOf("pluginperm") >= 0 || onclick.indexOf("pluginperm") >= 0 ||
+                            onclick.indexOf("permission") >= 0 || text === "permissions") {
                         relevant = true;
-                    } else if (mutation.type === "childList") {
-                        for (var j = 0; j < mutation.addedNodes.length; j++) {
-                            var node = mutation.addedNodes[j];
-                            if (node && node.nodeType === 1 &&
-                                    (node.id === "pluginPermModal" ||
-                                     (node.querySelector && node.querySelector("#pluginPermModal")))) {
-                                relevant = true;
-                                break;
-                            }
-                        }
+                        break;
                     }
+                    target = target.parentNode;
                 }
-                if (!relevant || queued) return;
-                queued = true;
-                window.setTimeout(function () {
-                    queued = false;
-                    applyThemeToDialog();
-                }, 0);
-            });
-            var observationRoot = document.body || document.documentElement;
-            observer.observe(observationRoot, { childList:true, subtree:true });
-            observer.observe(document.documentElement, { attributes:true, attributeFilter:["class", "style"] });
-            if (document.body) observer.observe(document.body, { attributes:true, attributeFilter:["class", "style"] });
-            window.__printerControlPermissionsThemeObserver = observer;
+                if (!relevant) return;
+                window.setTimeout(applyThemeToDialog, 0);
+                window.setTimeout(applyThemeToDialog, 100);
+            };
+            document.addEventListener("click", permissionClickHandler, true);
+            window.__printerControlPermissionsThemeClickHandler = permissionClickHandler;
         }
 
         // Expose a tiny diagnostic helper in the browser console.
@@ -225,11 +215,101 @@ module.exports.printercontrol = function (parent) {
         // process.platform check. Hide it only for an explicitly non-Windows OS.
         var osDescription = currentNode.osdesc == null ? "" : String(currentNode.osdesc).toLowerCase();
         if (osDescription && osDescription.indexOf("windows") < 0) return;
+
         pluginHandler.registerPluginTab({
             tabTitle: "Printers",
             tabId: "pluginPrinterControl"
         });
-        QA("pluginPrinterControl", '<iframe id="pluginIframePrinterControl" title="Printer Control" style="width:100%;height:760px;overflow:auto" scrolling="yes" frameBorder="0" src="/pluginadmin.ashx?pin=printercontrol&user=1&nodeid=' + encodeURIComponent(nodeid) + '"></iframe>');
+
+        var nodeKey = encodeURIComponent(String(nodeid || ""));
+        var page = document.getElementById("pluginPrinterControl");
+        if (!page) return;
+
+        // Reuse the existing iframe for repeated device refresh callbacks. When
+        // MeshCentral refreshes the device while Desktop is opening, do not reload
+        // the plugin and do not start another printer inventory operation.
+        var existing = document.getElementById("pluginIframePrinterControl");
+        var existingNodeKey = existing ? String(existing.getAttribute("data-nodeid") || "") : "";
+        if (existing && existingNodeKey !== nodeKey) {
+            try {
+                if (existing.contentWindow && existing.contentWindow.PrinterControl &&
+                        typeof existing.contentWindow.PrinterControl.unsubscribeJobs === "function") {
+                    existing.contentWindow.PrinterControl.unsubscribeJobs();
+                }
+            } catch (ignore) { }
+            existing = null;
+        }
+
+        page.setAttribute("data-printercontrol-nodeid", nodeKey);
+        if (!existing || existingNodeKey !== nodeKey) {
+            QA("pluginPrinterControl", '<div id="pluginPrinterControlPlaceholder" style="padding:18px;color:#777;text-align:center">Printer Control loads only when the Printers tab is opened.</div>');
+        }
+
+        function pageIsVisible(element) {
+            if (!element) return false;
+            try {
+                var current = element;
+                while (current && current.nodeType === 1) {
+                    if (current.hidden === true) return false;
+                    var style = window.getComputedStyle(current);
+                    if (!style || style.display === "none" || style.visibility === "hidden" || parseFloat(style.opacity || "1") === 0) return false;
+                    current = current.parentElement;
+                }
+                var rect = element.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+            } catch (ignore) {
+                return false;
+            }
+        }
+
+        // Keep the loader generic so one click handler can survive device changes.
+        window.__printerControlLoadCurrent = function (force) {
+            var currentPage = document.getElementById("pluginPrinterControl");
+            if (!currentPage) return false;
+            var currentNodeKey = String(currentPage.getAttribute("data-printercontrol-nodeid") || "");
+            if (!currentNodeKey) return false;
+            var currentIframe = document.getElementById("pluginIframePrinterControl");
+            if (currentIframe && String(currentIframe.getAttribute("data-nodeid") || "") === currentNodeKey) return true;
+            if (force !== true && !pageIsVisible(currentPage)) return false;
+            QA("pluginPrinterControl", '<iframe id="pluginIframePrinterControl" data-nodeid="' + currentNodeKey + '" title="Printer Control" style="width:100%;height:760px;overflow:auto" scrolling="yes" frameBorder="0" src="/pluginadmin.ashx?pin=printercontrol&user=1&nodeid=' + currentNodeKey + '"></iframe>');
+            return true;
+        };
+
+        window.__printerControlStopLive = function () {
+            var iframe = document.getElementById("pluginIframePrinterControl");
+            if (!iframe) return;
+            try {
+                if (iframe.contentWindow && iframe.contentWindow.PrinterControl &&
+                        typeof iframe.contentWindow.PrinterControl.stopLiveEvents === "function") {
+                    iframe.contentWindow.PrinterControl.stopLiveEvents(null, true);
+                }
+            } catch (ignore) { }
+        };
+
+        // One lightweight, event-driven handler replaces hidden iframe polling.
+        // It lazy-loads Printer Control only when Printers is selected and stops
+        // live monitoring immediately when another device/plugin tab is opened.
+        if (!window.__printerControlDeviceTabClickHandler) {
+            var deviceTabClickHandler = function (event) {
+                var target = event && event.target;
+                while (target && target !== document) {
+                    var id = String(target.id || "");
+                    if (id.indexOf("MainDev") === 0 || id.indexOf("p19ph-") === 0) break;
+                    target = target.parentNode;
+                }
+                if (!target || target === document) return;
+                var targetId = String(target.id || "");
+                if (targetId === "MainDevPlugins" || targetId === "p19ph-pluginPrinterControl") {
+                    window.setTimeout(function () {
+                        if (typeof window.__printerControlLoadCurrent === "function") window.__printerControlLoadCurrent(true);
+                    }, 0);
+                } else if (targetId.indexOf("MainDev") === 0 || targetId.indexOf("p19ph-") === 0) {
+                    if (typeof window.__printerControlStopLive === "function") window.__printerControlStopLive();
+                }
+            };
+            document.addEventListener("click", deviceTabClickHandler, true);
+            window.__printerControlDeviceTabClickHandler = deviceTabClickHandler;
+        }
 
         // MeshCentral exposes device extensions under a generic "Plugins" tab.
         // When Printer Control is the only device plugin, give that tab and the
@@ -237,25 +317,28 @@ module.exports.printercontrol = function (parent) {
         setTimeout(function () {
             var headers = document.getElementById("p19headers");
             var printerHeader = document.getElementById("p19ph-pluginPrinterControl");
-            if (!headers || !printerHeader || headers.querySelectorAll("span").length !== 1) return;
+            if (headers && printerHeader && headers.querySelectorAll("span").length === 1) {
+                var mainTab = document.getElementById("MainDevPlugins");
+                if (mainTab) {
+                    mainTab.textContent = "Printers";
+                    mainTab.setAttribute("title", "Printers");
+                }
 
-            var mainTab = document.getElementById("MainDevPlugins");
-            if (mainTab) {
-                mainTab.textContent = "Printers";
-                mainTab.setAttribute("title", "Printers");
-            }
-
-            var deviceName = document.getElementById("p19deviceName");
-            var heading = deviceName && deviceName.parentNode;
-            if (heading) {
-                for (var i = 0; i < heading.childNodes.length; i++) {
-                    var child = heading.childNodes[i];
-                    if (child.nodeType === 3 && child.nodeValue.indexOf("Plugins") >= 0) {
-                        child.nodeValue = child.nodeValue.replace("Plugins", "Printers");
-                        break;
+                var deviceName = document.getElementById("p19deviceName");
+                var heading = deviceName && deviceName.parentNode;
+                if (heading) {
+                    for (var i = 0; i < heading.childNodes.length; i++) {
+                        var child = heading.childNodes[i];
+                        if (child.nodeType === 3 && child.nodeValue.indexOf("Plugins") >= 0) {
+                            child.nodeValue = child.nodeValue.replace("Plugins", "Printers");
+                            break;
+                        }
                     }
                 }
             }
+
+            // If the user was already on the persisted Printers page, load now.
+            if (typeof window.__printerControlLoadCurrent === "function") window.__printerControlLoadCurrent(false);
         }, 0);
     };
 
@@ -700,6 +783,14 @@ module.exports.printercontrol = function (parent) {
         });
     }
 
+    function hasPendingReadOperation(nodeid, operation) {
+        for (var requestId in obj.pending) {
+            var pending = obj.pending[requestId];
+            if (pending && pending.nodeid === nodeid && pending.operation === operation) return true;
+        }
+        return false;
+    }
+
     function handleBrowserOperation(command, session, webserver) {
         var operation = command.pluginaction;
         var requiredPermission = ACTION_PERMISSIONS[operation];
@@ -732,6 +823,12 @@ module.exports.printercontrol = function (parent) {
                 }
                 if (!agentIsOnline(command.nodeid)) {
                     fail(session, operation, "MeshAgent is offline");
+                    return;
+                }
+                // A repeated iframe load or multiple browser tabs must not start
+                // overlapping expensive read operations on the same endpoint.
+                if ((operation === "inventory" || operation === "jobs") && hasPendingReadOperation(command.nodeid, operation)) {
+                    fail(session, operation, "A printer read operation is already running for this device");
                     return;
                 }
                 var requestId = crypto.randomBytes(18).toString("hex");

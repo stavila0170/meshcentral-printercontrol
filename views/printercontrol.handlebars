@@ -125,7 +125,6 @@ var PrinterControl = (function () {
         watcherReady: false,
         liveRequested: false,
         heartbeatTimer: null,
-        visibilityTimer: null,
         liveMaxTimer: null,
         eventRefreshTimer: null,
         recentCompletedTimer: null,
@@ -192,7 +191,6 @@ var PrinterControl = (function () {
 
     function stopLiveTimers() {
         if (state.heartbeatTimer != null) { window.clearInterval(state.heartbeatTimer); state.heartbeatTimer = null; }
-        if (state.visibilityTimer != null) { window.clearInterval(state.visibilityTimer); state.visibilityTimer = null; }
         if (state.liveMaxTimer != null) { window.clearTimeout(state.liveMaxTimer); state.liveMaxTimer = null; }
     }
 
@@ -216,9 +214,6 @@ var PrinterControl = (function () {
         stopLiveTimers();
         sendHeartbeat();
         state.heartbeatTimer = window.setInterval(sendHeartbeat, 15000);
-        state.visibilityTimer = window.setInterval(function () {
-            if (state.liveRequested && !isPluginVisible()) stopLiveEvents("Live monitoring stopped because the Printers tab is no longer visible.", false);
-        }, 2000);
         state.liveMaxTimer = window.setTimeout(function () {
             if (state.liveRequested) stopLiveEvents("Live monitoring stopped after the 10-minute safety limit. Press Start live events to enable it again.", false);
         }, 600000);

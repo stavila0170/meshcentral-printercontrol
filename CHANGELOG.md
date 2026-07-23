@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.13
+
+- Lazy-load the Printer Control iframe only when the **Printers** device tab is actually opened, so opening a device or starting Desktop no longer triggers hidden printer inventory work.
+- Reuse the same iframe for repeated `onDeviceRefreshEnd` callbacks on the same device instead of recreating it and restarting initialization.
+- Stop live print-job monitoring immediately when another MeshCentral device or plugin tab is selected.
+- Remove the two-second iframe visibility interval; the existing 15-second live lease heartbeat still verifies visibility while live monitoring is enabled.
+- Replace the permanent permissions-dialog `MutationObserver` with a lightweight click-triggered dark-mode update.
+- Reject overlapping inventory or queue-read requests for the same endpoint as a server-side safety guard.
+- Keep inventory one-time on intentional Printers-page opening, manual thereafter, with no background printer polling.
+
 ## 0.4.12
 
 - Make live print-job monitoring explicitly opt-in; pressing **Jobs** now performs only a one-time queue load.
