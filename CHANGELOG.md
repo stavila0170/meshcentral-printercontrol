@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.8
+
+- Add event-driven print-job updates without browser or server polling.
+- Start one local `Win32_PrintJob` WMI watcher only after **Jobs** is selected and stop it when the last browser subscription closes.
+- Send bounded queue snapshots from MeshAgent to the subscribed MeshCentral session when a job is created, modified or deleted.
+- Debounce rapid job events in the browser and render the newest queue snapshot directly, without launching a second PowerShell request.
+- Keep **Refresh jobs** as a manual fallback and retain manual-only printer inventory refresh.
+- Preserve redirected-printer filtering, dark-mode fixes and the PowerShell standard-input launcher from 0.4.7.
+
 ## 0.4.7
 
 - Fix PowerShell parse failures on MeshAgent caused by passing a command longer than approximately 4 KiB through the Windows process command line.

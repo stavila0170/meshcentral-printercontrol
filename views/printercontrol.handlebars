@@ -92,7 +92,7 @@
     </section>
 
     <section class="panel">
-        <div class="panel-head"><h2 id="jobsTitle">Print jobs</h2><span class="spacer"></span><button id="jobsRefresh" class="small" disabled onclick="PrinterControl.reloadJobs()">Refresh jobs</button></div>
+        <div class="panel-head"><h2 id="jobsTitle">Print jobs</h2><span id="jobsLiveBadge" class="badge unknown">Live events off</span><span class="spacer"></span><button id="jobsRefresh" class="small" disabled onclick="PrinterControl.reloadJobs()">Refresh jobs</button></div>
         <div class="table-wrap">
             <table>
                 <thead><tr><th>ID</th><th>Document</th><th>User</th><th>Status</th><th>Pages</th><th>Size</th><th>Actions</th></tr></thead>
@@ -118,10 +118,89 @@ var PrinterControl = (function () {
         jobsRequestStartedAt: 0,
         permissionsLoaded: false,
         permissionsRequestInFlight: false,
-        manualRefreshPending: false
+        manualRefreshPending: false,
+        subscriptionId: null,
+        subscriptionPrinter: null,
+        subscriptionActive: false,
+        eventRefreshTimer: null,
+        pendingJobEvent: null,
+        unloading: false
     };
 
     function hasPermission(name) { return state.permissions.indexOf(name) >= 0; }
+
+
+    function createSubscriptionId() {
+        var bytes = new Uint8Array(16);
+        if (window.crypto && typeof window.crypto.getRandomValues === "function") {
+            window.crypto.getRandomValues(bytes);
+        } else {
+            for (var i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+        }
+        var value = "";
+        for (var j = 0; j < bytes.length; j++) value += ("0" + bytes[j].toString(16)).slice(-2);
+        return value;
+    }
+
+    function setLiveBadge(text, kind) {
+        var badge = document.getElementById("jobsLiveBadge");
+        if (!badge) return;
+        badge.textContent = text;
+        badge.className = "badge " + (kind || "unknown");
+    }
+
+    function sendSubscription(subscribe, printerName) {
+        if (!state.nodeid || !state.subscriptionId || state.unloading && subscribe) return false;
+        parent.meshserver.send({
+            action: "plugin",
+            plugin: "printercontrol",
+            pluginaction: subscribe ? "subscribeJobs" : "unsubscribeJobs",
+            nodeid: state.nodeid,
+            params: {
+                subscriptionId: state.subscriptionId,
+                printerName: printerName || state.subscriptionPrinter || state.selectedPrinter || ""
+            }
+        });
+        return true;
+    }
+
+    function subscribeJobs(printerName) {
+        if (!printerName || !state.online || !hasPermission("can_view")) return false;
+        state.subscriptionPrinter = printerName;
+        state.subscriptionActive = false;
+        setLiveBadge("Starting live events...", "unknown");
+        return sendSubscription(true, printerName);
+    }
+
+    function unsubscribeJobs() {
+        if (!state.subscriptionId || (!state.subscriptionPrinter && !state.subscriptionActive)) return false;
+        state.unloading = true;
+        var sent = sendSubscription(false, state.subscriptionPrinter);
+        state.subscriptionActive = false;
+        state.subscriptionPrinter = null;
+        if (state.eventRefreshTimer != null) {
+            window.clearTimeout(state.eventRefreshTimer);
+            state.eventRefreshTimer = null;
+        }
+        state.pendingJobEvent = null;
+        return sent;
+    }
+
+    function scheduleEventRender(event) {
+        state.pendingJobEvent = event;
+        if (state.eventRefreshTimer != null) return;
+        state.eventRefreshTimer = window.setTimeout(function () {
+            state.eventRefreshTimer = null;
+            var latest = state.pendingJobEvent;
+            state.pendingJobEvent = null;
+            if (!latest || !state.selectedPrinter) return;
+            renderJobs({ printerName: latest.printerName, jobs: Array.isArray(latest.jobs) ? latest.jobs : [] });
+            var eventName = String(latest.eventType || "");
+            if (eventName.indexOf("Creation") >= 0) {
+                setMessage("A print job was detected and the queue was updated automatically.", "success");
+            }
+        }, 250);
+    }
 
     function setMessage(text, kind) {
         var box = document.getElementById("message");
@@ -329,9 +408,13 @@ var PrinterControl = (function () {
         });
     }
 
-    function loadJobs(printerName, silent) {
+    function loadJobs(printerName, silent, fromEvent) {
+        var changedPrinter = state.selectedPrinter !== printerName;
         state.selectedPrinter = printerName;
         updateButtons();
+        if (!fromEvent && (changedPrinter || state.subscriptionPrinter !== printerName || !state.subscriptionActive)) {
+            subscribeJobs(printerName);
+        }
         send("jobs", { printerName: printerName }, { silent: silent === true });
     }
 
@@ -391,6 +474,8 @@ var PrinterControl = (function () {
                 state.jobsRequestInFlight = false;
                 state.jobsRequestSilent = false;
                 state.jobsRequestStartedAt = 0;
+                state.subscriptionActive = false;
+                setLiveBadge("Live events off", "unknown");
                 setSpoolerBadge("Unknown");
                 setMessage("MeshAgent is offline.", "error");
             } else if (firstPermissionsResult || manualRefreshRequested) {
@@ -398,6 +483,36 @@ var PrinterControl = (function () {
                 // when the user presses Refresh or an operation needs one update.
                 refresh(false, false);
             }
+            return;
+        }
+
+        if (message.type === "subscription") {
+            if (message.subscriptionId !== state.subscriptionId) return;
+            state.subscriptionActive = message.success === true && message.active === true;
+            if (state.subscriptionActive) {
+                state.subscriptionPrinter = message.printerName || state.selectedPrinter;
+                setLiveBadge("Live events on", "ok");
+            } else {
+                setLiveBadge("Live events off", "unknown");
+            }
+            return;
+        }
+
+        if (message.type === "watcherStatus") {
+            if (message.success === true) {
+                if (state.subscriptionActive) setLiveBadge("Live events on", "ok");
+            } else {
+                state.subscriptionActive = false;
+                setLiveBadge("Live events unavailable", "bad");
+                if (!state.unloading) setMessage(message.error || "Automatic print-job events are unavailable. Use Refresh jobs.", "error");
+            }
+            return;
+        }
+
+        if (message.type === "jobEvent") {
+            if (message.subscriptionId !== state.subscriptionId || !state.selectedPrinter || !message.event) return;
+            if (String(message.event.printerName || "").toLowerCase() !== String(state.selectedPrinter).toLowerCase()) return;
+            scheduleEventRender(message.event);
             return;
         }
 
@@ -494,7 +609,14 @@ var PrinterControl = (function () {
         return true;
     }
 
+    function initialize() {
+        if (!state.subscriptionId) state.subscriptionId = createSubscriptionId();
+        state.unloading = false;
+        return requestPermissions();
+    }
+
     return {
+        initialize: initialize,
         requestPermissions: requestPermissions,
         handleMessage: handleMessage,
         refresh: refresh,
@@ -502,7 +624,8 @@ var PrinterControl = (function () {
         run: send,
         clearQueue: clearQueue,
         addTcpPrinter: addTcpPrinter,
-        manualRefresh: manualRefresh
+        manualRefresh: manualRefresh,
+        unsubscribeJobs: unsubscribeJobs
     };
 })();
 
@@ -511,7 +634,9 @@ function printerControlOnLoad() {
     parent.pluginHandler.printercontrol.handlePrinterMessage = function (x, message) {
         PrinterControl.handleMessage(message);
     };
-    PrinterControl.requestPermissions();
+    PrinterControl.initialize();
+    window.addEventListener("pagehide", PrinterControl.unsubscribeJobs);
+    window.addEventListener("beforeunload", PrinterControl.unsubscribeJobs);
 }
 </script>
 </body>

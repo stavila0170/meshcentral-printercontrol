@@ -1,6 +1,6 @@
-# Mesh Printer Control 0.4.7
+# Mesh Printer Control 0.4.8
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.7 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.8 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
 
 ## Included operations
 
@@ -14,9 +14,11 @@ Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. 
 
 The browser cannot submit PowerShell. The server and endpoint accept only the fixed operations above, and MeshCore validates every parameter before starting PowerShell.
 
-### Refresh behavior
+### Refresh and live print-job behavior
 
-Version 0.4.7 performs no periodic printer or print-job polling. Inventory is loaded once when the Printers page opens, then updated only through the manual **Refresh** button or once after an operation that changes printer state. Print jobs are loaded only through **Jobs** and **Refresh jobs**.
+Version 0.4.8 performs no periodic browser or server polling. Inventory is loaded once when the Printers page opens, then updated only through the manual **Refresh** button or once after an operation that changes printer state.
+
+When **Jobs** is pressed for a printer, the browser subscribes to that printer queue. MeshAgent starts one local WMI event watcher only while at least one browser subscription exists. A queue creation, modification or deletion event causes the agent to send a bounded queue snapshot to MeshCentral, and the **Print jobs** table updates automatically without starting a periodic refresh loop. **Refresh jobs** remains available as a manual fallback.
 
 ## Requirements
 
@@ -80,7 +82,7 @@ Use that raw URL when adding the plugin to MeshCentral. The GitHub archive refer
 
 ## Upgrade from 0.3.x
 
-Install 0.4.7 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
+Install 0.4.8 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
 
 ```powershell
 Stop-Service MeshPrinterControl -Force -ErrorAction SilentlyContinue
@@ -88,7 +90,7 @@ sc.exe delete MeshPrinterControl
 Remove-Item "$env:ProgramData\MeshPrinterControl" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-Version 0.4.2 does not recreate this directory.
+Version 0.4.8 does not recreate this directory.
 
 ## Security design
 
@@ -99,6 +101,8 @@ Version 0.4.2 does not recreate this directory.
 - The operation script is Gzip-compressed inside the MeshCore module and expanded only into PowerShell process memory.
 - Gzip integrity validation rejects damaged embedded content before the script can run.
 - Execution remains inside the existing LocalSystem Mesh Agent trust boundary; no listener, shared secret, HMAC protocol or additional service is needed.
+- Live queue updates are scoped to server-authorized browser subscriptions and filtered to the selected printer before being forwarded.
+- The event watcher sends at most 250 jobs per queue snapshot, and the server bounds every string and numeric field before forwarding it to the browser.
 - Operation outcomes are emitted to the MeshCentral plugin log; no endpoint audit file is created.
 
 ## Current limitations
@@ -106,7 +110,8 @@ Version 0.4.2 does not recreate this directory.
 - Machine-wide printers are supported. Per-user printer connections and default-printer settings require a user-session component.
 - Printer drivers must already be installed. INF upload and driver installation are not included.
 - The transport targets agents connected to the same MeshCentral server process; multi-server peering needs an additional routing adapter.
-- Environments that block Windows PowerShell or the `PrintManagement` module cannot use printer operations.
+- Environments that block Windows PowerShell, WMI event subscriptions or the `PrintManagement` module cannot use the related printer features.
+- Live events start after **Jobs** is selected for a printer. Until then, no queue watcher is active.
 
 ## Development checks
 
