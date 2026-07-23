@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.9
+
+- Fix the 0.4.8 watcher startup bug by closing PowerShell standard input after sending the multi-line watcher program.
+- Wait for an explicit `ready` message from PowerShell before showing **Live events on**.
+- Reduce the local WMI intrinsic-event sampling interval from one second to 0.25 seconds so short-lived print jobs are much less likely to be missed.
+- Preserve completed jobs as a recent event for 15 seconds using a one-shot browser timer, without any periodic server or endpoint refresh.
+- Show a concrete watcher error instead of reporting live events as active when PowerShell did not actually start.
+
 ## 0.4.8
 
 - Add event-driven print-job updates without browser or server polling.

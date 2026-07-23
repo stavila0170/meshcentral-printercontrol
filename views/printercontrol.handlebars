@@ -122,7 +122,10 @@ var PrinterControl = (function () {
         subscriptionId: null,
         subscriptionPrinter: null,
         subscriptionActive: false,
+        watcherReady: false,
         eventRefreshTimer: null,
+        recentCompletedTimer: null,
+        recentCompletedToken: 0,
         pendingJobEvent: null,
         unloading: false
     };
@@ -168,6 +171,7 @@ var PrinterControl = (function () {
         if (!printerName || !state.online || !hasPermission("can_view")) return false;
         state.subscriptionPrinter = printerName;
         state.subscriptionActive = false;
+        state.watcherReady = false;
         setLiveBadge("Starting live events...", "unknown");
         return sendSubscription(true, printerName);
     }
@@ -177,12 +181,17 @@ var PrinterControl = (function () {
         state.unloading = true;
         var sent = sendSubscription(false, state.subscriptionPrinter);
         state.subscriptionActive = false;
+        state.watcherReady = false;
         state.subscriptionPrinter = null;
         if (state.eventRefreshTimer != null) {
             window.clearTimeout(state.eventRefreshTimer);
             state.eventRefreshTimer = null;
         }
         state.pendingJobEvent = null;
+        if (state.recentCompletedTimer != null) {
+            window.clearTimeout(state.recentCompletedTimer);
+            state.recentCompletedTimer = null;
+        }
         return sent;
     }
 
@@ -194,12 +203,38 @@ var PrinterControl = (function () {
             var latest = state.pendingJobEvent;
             state.pendingJobEvent = null;
             if (!latest || !state.selectedPrinter) return;
-            renderJobs({ printerName: latest.printerName, jobs: Array.isArray(latest.jobs) ? latest.jobs : [] });
+            var jobs = Array.isArray(latest.jobs) ? latest.jobs : [];
+            renderJobs({ printerName: latest.printerName, jobs: jobs });
             var eventName = String(latest.eventType || "");
             if (eventName.indexOf("Creation") >= 0) {
-                setMessage("A print job was detected and the queue was updated automatically.", "success");
+                setMessage("A print job was detected and displayed automatically.", "success");
+            } else if (eventName.indexOf("Deletion") >= 0) {
+                setMessage("The print job completed. It will remain visible briefly as a recent event.", "success");
             }
-        }, 250);
+
+            // A completed job vanishes from the Windows queue immediately. Keep
+            // the event visible for 15 seconds with a one-shot browser timer only.
+            if (state.recentCompletedTimer != null) {
+                window.clearTimeout(state.recentCompletedTimer);
+                state.recentCompletedTimer = null;
+            }
+            var hasRecentCompleted = false;
+            for (var i = 0; i < jobs.length; i++) {
+                if (jobs[i] && jobs[i].recentCompleted === true) { hasRecentCompleted = true; break; }
+            }
+            if (hasRecentCompleted) {
+                var token = ++state.recentCompletedToken;
+                state.recentCompletedTimer = window.setTimeout(function () {
+                    state.recentCompletedTimer = null;
+                    if (token !== state.recentCompletedToken || !state.selectedPrinter) return;
+                    var remaining = [];
+                    for (var j = 0; j < jobs.length; j++) {
+                        if (!jobs[j] || jobs[j].recentCompleted !== true) remaining.push(jobs[j]);
+                    }
+                    renderJobs({ printerName: latest.printerName, jobs: remaining });
+                }, 15000);
+            }
+        }, 100);
     }
 
     function setMessage(text, kind) {
@@ -388,6 +423,7 @@ var PrinterControl = (function () {
             var documentName = getJobValue(job, ["documentName", "DocumentName", "document", "Document"], "");
             var userName = getJobValue(job, ["userName", "UserName", "user", "User"], "");
             var jobStatus = getJobValue(job, ["jobStatus", "JobStatus", "status", "Status"], "");
+            if (job && job.recentCompleted === true && String(jobStatus).toLowerCase().indexOf("completed") < 0) jobStatus = "Completed";
             var pagesPrinted = getJobValue(job, ["pagesPrinted", "PagesPrinted"], 0);
             var totalPages = getJobValue(job, ["totalPages", "TotalPages"], 0);
             var size = getJobValue(job, ["size", "Size", "jobSize", "JobSize"], "");
@@ -400,9 +436,14 @@ var PrinterControl = (function () {
             textCell(row, size);
             var actions = document.createElement("td");
             actions.className = "actions";
-            actions.appendChild(button("Pause", "manage_jobs", function () { jobAction("pauseJob", jobId); }));
-            actions.appendChild(button("Resume", "manage_jobs", function () { jobAction("resumeJob", jobId); }));
-            actions.appendChild(button("Cancel", "manage_jobs", function () { jobAction("cancelJob", jobId); }, true));
+            if (job && job.recentCompleted === true) {
+                actions.textContent = "Recent event";
+                actions.className += " muted";
+            } else {
+                actions.appendChild(button("Pause", "manage_jobs", function () { jobAction("pauseJob", jobId); }));
+                actions.appendChild(button("Resume", "manage_jobs", function () { jobAction("resumeJob", jobId); }));
+                actions.appendChild(button("Cancel", "manage_jobs", function () { jobAction("cancelJob", jobId); }, true));
+            }
             row.appendChild(actions);
             body.appendChild(row);
         });
@@ -475,6 +516,7 @@ var PrinterControl = (function () {
                 state.jobsRequestSilent = false;
                 state.jobsRequestStartedAt = 0;
                 state.subscriptionActive = false;
+                state.watcherReady = false;
                 setLiveBadge("Live events off", "unknown");
                 setSpoolerBadge("Unknown");
                 setMessage("MeshAgent is offline.", "error");
@@ -491,8 +533,9 @@ var PrinterControl = (function () {
             state.subscriptionActive = message.success === true && message.active === true;
             if (state.subscriptionActive) {
                 state.subscriptionPrinter = message.printerName || state.selectedPrinter;
-                setLiveBadge("Live events on", "ok");
+                setLiveBadge(state.watcherReady ? "Live events on" : "Starting live events...", state.watcherReady ? "ok" : "unknown");
             } else {
+                state.watcherReady = false;
                 setLiveBadge("Live events off", "unknown");
             }
             return;
@@ -500,8 +543,10 @@ var PrinterControl = (function () {
 
         if (message.type === "watcherStatus") {
             if (message.success === true) {
+                state.watcherReady = true;
                 if (state.subscriptionActive) setLiveBadge("Live events on", "ok");
             } else {
+                state.watcherReady = false;
                 state.subscriptionActive = false;
                 setLiveBadge("Live events unavailable", "bad");
                 if (!state.unloading) setMessage(message.error || "Automatic print-job events are unavailable. Use Refresh jobs.", "error");

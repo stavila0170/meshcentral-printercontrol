@@ -73,7 +73,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.8 started in fully in-memory agent mode");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.9 started in fully in-memory agent mode");
     };
 
     // This function is serialized into the MeshCentral web application. Keep it
@@ -498,7 +498,8 @@ module.exports.printercontrol = function (parent) {
                     totalPages: typeof job.totalPages === "number" ? job.totalPages : parseInt(job.totalPages, 10) || 0,
                     pagesPrinted: typeof job.pagesPrinted === "number" ? job.pagesPrinted : parseInt(job.pagesPrinted, 10) || 0,
                     size: typeof job.size === "number" ? job.size : parseInt(job.size, 10) || 0,
-                    submittedTime: typeof job.submittedTime === "string" ? job.submittedTime.substring(0, 64) : null
+                    submittedTime: typeof job.submittedTime === "string" ? job.submittedTime.substring(0, 64) : null,
+                    recentCompleted: job.recentCompleted === true
                 });
             }
         }
