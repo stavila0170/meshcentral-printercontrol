@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.6
+
+- Remove the remaining two-second automatic permission, agent-status, Print Spooler and printer-inventory polling.
+- Load inventory once when the Printers page opens; all later inventory and connectivity checks are manual through **Refresh**.
+- Keep one-time refreshes only after operations that change printer or Spooler state.
+- Keep Print jobs fully manual through **Jobs** and **Refresh jobs**.
+- Avoid a full inventory refresh after printing a test page.
+- Reduce the dark-mode observer scope and style the legacy Permissions **Cancel** button correctly.
+
 ## 0.4.5
 
 - Remove the one-second automatic Print jobs polling interval.

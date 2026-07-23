@@ -72,7 +72,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.5 started in fully in-memory agent mode");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.6 started in fully in-memory agent mode");
     };
 
     // This function is serialized into the MeshCentral web application. Keep it
@@ -99,6 +99,7 @@ module.exports.printercontrol = function (parent) {
                 '#pluginPermModal.printercontrol-dark option { background:#303030 !important; color:#f1f1f1 !important; }',
                 '#pluginPermModal.printercontrol-dark input::placeholder, #pluginPermModal.printercontrol-dark textarea::placeholder { color:#aaa !important; opacity:1; }',
                 '#pluginPermModal.printercontrol-dark button[onclick*="closePluginPermModal"] { color:#f1f1f1 !important; }',
+                '#pluginPermModal.printercontrol-dark button[onclick="closePluginPermModal()"][style*="margin-right"] { background:#3b3b3b !important; color:#fff !important; border:1px solid #707070 !important; border-radius:4px !important; opacity:1 !important; padding:6px 16px !important; }',
                 '#pluginPermModal.printercontrol-dark .btn-close { filter:invert(1) grayscale(100%) brightness(200%); }',
                 '#pluginPermModal.printercontrol-dark .btn-secondary { background:#3b3b3b !important; color:#fff !important; border-color:#666 !important; }',
                 '#pluginPermModal.printercontrol-dark .btn-outline-secondary { background:#303030 !important; color:#ddd !important; border-color:#707070 !important; }',
@@ -163,24 +164,40 @@ module.exports.printercontrol = function (parent) {
         ensureStyle();
         applyThemeToDialog();
 
-        // The dialog does not exist when the page starts. Watch for its insertion,
-        // and also for a later light/dark theme change.
+        // The dialog does not exist when the page starts. Observe only DOM
+        // insertions plus theme attributes on the page roots. Avoid watching every
+        // style/class mutation in the entire MeshCentral interface.
         if (!window.__printerControlPermissionsThemeObserver && typeof MutationObserver !== "undefined") {
             var queued = false;
-            var observer = new MutationObserver(function () {
-                if (queued) return;
+            var observer = new MutationObserver(function (mutations) {
+                var relevant = false;
+                for (var i = 0; i < mutations.length && !relevant; i++) {
+                    var mutation = mutations[i];
+                    if (mutation.type === "attributes") {
+                        relevant = true;
+                    } else if (mutation.type === "childList") {
+                        for (var j = 0; j < mutation.addedNodes.length; j++) {
+                            var node = mutation.addedNodes[j];
+                            if (node && node.nodeType === 1 &&
+                                    (node.id === "pluginPermModal" ||
+                                     (node.querySelector && node.querySelector("#pluginPermModal")))) {
+                                relevant = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!relevant || queued) return;
                 queued = true;
                 window.setTimeout(function () {
                     queued = false;
                     applyThemeToDialog();
                 }, 0);
             });
-            observer.observe(document.documentElement, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ["class", "style"]
-            });
+            var observationRoot = document.body || document.documentElement;
+            observer.observe(observationRoot, { childList:true, subtree:true });
+            observer.observe(document.documentElement, { attributes:true, attributeFilter:["class", "style"] });
+            if (document.body) observer.observe(document.body, { attributes:true, attributeFilter:["class", "style"] });
             window.__printerControlPermissionsThemeObserver = observer;
         }
 
