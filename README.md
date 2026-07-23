@@ -1,6 +1,6 @@
-# Mesh Printer Control 0.4.9
+# Mesh Printer Control 0.4.10
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.9 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.10 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
 
 ## Included operations
 
@@ -16,7 +16,7 @@ The browser cannot submit PowerShell. The server and endpoint accept only the fi
 
 ### Refresh and live print-job behavior
 
-Version 0.4.9 performs no periodic browser or server polling. Inventory is loaded once when the Printers page opens, then updated only through the manual **Refresh** button or once after an operation that changes printer state.
+Version 0.4.10 performs no periodic browser or server polling. Inventory is loaded once when the Printers page opens, then updated only through the manual **Refresh** button or once after an operation that changes printer state.
 
 When **Jobs** is pressed for a printer, the browser subscribes to that printer queue. MeshAgent starts one local WMI event watcher only while at least one browser subscription exists. A queue creation, modification or deletion event causes the agent to send a bounded queue snapshot to MeshCentral, and the **Print jobs** table updates automatically without starting a periodic refresh loop. **Refresh jobs** remains available as a manual fallback.
 
@@ -82,7 +82,7 @@ Use that raw URL when adding the plugin to MeshCentral. The GitHub archive refer
 
 ## Upgrade from 0.3.x
 
-Install 0.4.9 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
+Install 0.4.10 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
 
 ```powershell
 Stop-Service MeshPrinterControl -Force -ErrorAction SilentlyContinue
@@ -90,7 +90,7 @@ sc.exe delete MeshPrinterControl
 Remove-Item "$env:ProgramData\MeshPrinterControl" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-Version 0.4.9 does not recreate this directory.
+Version 0.4.10 does not recreate this directory.
 
 ## Security design
 

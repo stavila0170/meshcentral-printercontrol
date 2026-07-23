@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.10
+
+- Fix `ManagementException: Unparsable query` when starting live print-job events.
+- Replace the unsupported 250 ms intrinsic-event interval with the valid WQL query `WITHIN 1`.
+- Keep the design event-driven between endpoint, MeshCentral server and browser; only WMI performs its required local one-second intrinsic-event check while a Jobs subscription is active.
+
 ## 0.4.9
 
 - Fix the 0.4.8 watcher startup bug by closing PowerShell standard input after sending the multi-line watcher program.
