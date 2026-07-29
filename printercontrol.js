@@ -107,7 +107,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.23 started with spooler hand-off and driver-progress reporting");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.24 started with endpoint-wide fast-job live detection");
     };
 
     obj.server_shutdown = function () {
@@ -1058,7 +1058,6 @@ module.exports.printercontrol = function (parent) {
             if (!event) return;
             var bucket = subscriptionBucket(nodeid, false);
             if (!bucket) return;
-            var eventPrinter = event.printerName.toLowerCase();
             for (var id in bucket) {
                 if (!Object.prototype.hasOwnProperty.call(bucket, id)) continue;
                 var sub = bucket[id];
@@ -1066,7 +1065,9 @@ module.exports.printercontrol = function (parent) {
                     expireSubscription(nodeid, id, sub, "Live monitoring subscription expired.");
                     continue;
                 }
-                if (sub.printerNameLower !== eventPrinter) continue;
+                // The endpoint watcher already observes all queues. Forward the
+                // rare spooler event to each authorized live subscription so the
+                // browser can follow a job started outside MeshCentral.
                 if (!sendToSession(sub.session, browserMessage("jobEvent", {
                     nodeid: nodeid,
                     subscriptionId: id,

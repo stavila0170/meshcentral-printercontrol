@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.24
+
+- Monitor print activity across all queues on the endpoint while Live events is enabled.
+- Automatically switch the print-job panel to the printer that receives a job from Word or another local application.
+- Forward authorized spooler events without filtering them to the printer that was selected when live monitoring started.
+- Reduce the opt-in WMI event sampling window from one second to 200 milliseconds so fast TCP/IP jobs are much less likely to be missed.
+- Retain the existing 10-minute watcher limit, lease checks and event coalescing to bound the additional live-monitoring work.
+
 ## 0.4.23
 
 - Distinguish Windows spooler completion from physical printing by displaying `Sent to printer` instead of `Completed`.

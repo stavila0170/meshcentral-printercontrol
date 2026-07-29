@@ -1,9 +1,9 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.23",
+  "version": "0.4.24",
   "author": "Custom MeshCentral Integration",
-  "description": "Secure Windows printer management with honest spooler hand-off status and driver-reported page progress.",
+  "description": "Secure Windows printer management with endpoint-wide live detection for fast TCP/IP print jobs.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
   "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",

@@ -955,7 +955,16 @@ var PrinterControl = (function () {
 
         if (message.type === "jobEvent") {
             if (message.subscriptionId !== state.subscriptionId || !state.selectedPrinter || !message.event) return;
-            if (String(message.event.printerName || "").toLowerCase() !== String(state.selectedPrinter).toLowerCase()) return;
+            var eventPrinter = String(message.event.printerName || "");
+            if (!eventPrinter) return;
+            if (eventPrinter.toLowerCase() !== String(state.selectedPrinter).toLowerCase()) {
+                clearPendingJobEvents();
+                stopTestPageJobDiscovery();
+                state.selectedPrinter = eventPrinter;
+                state.subscriptionPrinter = eventPrinter;
+                document.getElementById("jobsTitle").textContent = "Print jobs — " + eventPrinter;
+                updateButtons();
+            }
             if (state.activeOperation === "testPage" ||
                     (state.testPageJobPrinter &&
                      String(state.testPageJobPrinter).toLowerCase() === String(state.selectedPrinter).toLowerCase())) {
