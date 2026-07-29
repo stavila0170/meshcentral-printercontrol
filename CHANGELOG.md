@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.23
+
+- Distinguish Windows spooler completion from physical printing by displaying `Sent to printer` instead of `Completed`.
+- Explain that physical printing may continue after Windows removes a job from its queue.
+- Rename the page column to `Driver progress` and show printed and remaining pages only from values reported by the Windows driver.
+- Display `Not reported` or `Spooler finished` instead of misleading values such as `0/1` after queue deletion.
+- Keep the most recent spooler hand-off visible for 60 seconds without endpoint polling.
+
 ## 0.4.22
 
 - Display a provisional `Windows Test Page` job immediately when **Test** is pressed, including when live events are off.

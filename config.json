@@ -1,9 +1,9 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.22",
+  "version": "0.4.23",
   "author": "Custom MeshCentral Integration",
-  "description": "Secure Windows printer management with bounded test-page job discovery, live events and operation-specific recovery.",
+  "description": "Secure Windows printer management with honest spooler hand-off status and driver-reported page progress.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
   "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",

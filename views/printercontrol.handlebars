@@ -96,7 +96,7 @@
         <div class="panel-head"><h2 id="jobsTitle">Print jobs</h2><span id="jobsLiveBadge" class="badge unknown">Live events off</span><span class="spacer"></span><button id="jobsLiveToggle" class="small" disabled onclick="PrinterControl.toggleLiveEvents()">Start live events</button><button id="jobsRefresh" class="small" disabled onclick="PrinterControl.reloadJobs()">Refresh jobs</button></div>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>ID</th><th>Document</th><th>User</th><th>Status</th><th>Pages</th><th>Size</th><th>Actions</th></tr></thead>
+                <thead><tr><th>ID</th><th>Document</th><th>User</th><th>Status</th><th>Driver progress</th><th>Size</th><th>Actions</th></tr></thead>
                 <tbody id="jobRows"><tr><td colspan="7" class="empty">Select a printer to view its queue.</td></tr></tbody>
             </table>
         </div>
@@ -372,11 +372,12 @@ var PrinterControl = (function () {
             if (eventName.indexOf("Creation") >= 0) {
                 setMessage("A print job was detected and displayed automatically.", "success");
             } else if (eventName.indexOf("Deletion") >= 0) {
-                setMessage("The print job completed. It will remain visible briefly as a recent event.", "success");
+                setMessage("Windows handed the job to the printer. Physical printing may still be in progress.", "success");
             }
 
-            // A completed job vanishes from the Windows queue immediately. Keep
-            // the event visible for 15 seconds with a one-shot browser timer only.
+            // A job vanishes when the Windows spooler hands it to the device, which
+            // can be well before the paper finishes printing. Keep this honest
+            // hand-off state visible for one minute without polling the endpoint.
             if (state.recentCompletedTimer != null) {
                 window.clearTimeout(state.recentCompletedTimer);
                 state.recentCompletedTimer = null;
@@ -395,7 +396,7 @@ var PrinterControl = (function () {
                         if (!jobs[j] || jobs[j].recentCompleted !== true) remaining.push(jobs[j]);
                     }
                     renderJobs({ printerName: latest.printerName, jobs: remaining });
-                }, 15000);
+                }, 60000);
             }
         }, 100);
     }
@@ -696,6 +697,29 @@ var PrinterControl = (function () {
         return [];
     }
 
+    function formatJobStatus(job, rawStatus, pagesPrinted, totalPages) {
+        if (job && job.recentCompleted === true) return "Sent to printer";
+        var status = String(rawStatus || "").trim();
+        if (pagesPrinted > 0 && totalPages > pagesPrinted &&
+                !/printing|spooling|paused|error|offline|blocked/i.test(status)) {
+            return "Printing";
+        }
+        return status || "Queued";
+    }
+
+    function formatJobProgress(job, pagesPrinted, totalPages) {
+        if (job && job.recentCompleted === true) return "Spooler finished";
+        var printed = Number(pagesPrinted);
+        var total = Number(totalPages);
+        if (!isFinite(printed) || printed < 0) printed = 0;
+        if (!isFinite(total) || total <= 0) {
+            return printed > 0 ? printed + " printed / remaining unknown" : "Not reported";
+        }
+        printed = Math.min(Math.floor(printed), Math.floor(total));
+        total = Math.floor(total);
+        return printed + " printed / " + (total - printed) + " remaining";
+    }
+
     function renderJobs(data) {
         if (data && data.printerName) state.selectedPrinter = data.printerName;
         document.getElementById("jobsTitle").textContent = "Print jobs" + (state.selectedPrinter ? " — " + state.selectedPrinter : "");
@@ -717,21 +741,22 @@ var PrinterControl = (function () {
             var documentName = getJobValue(job, ["documentName", "DocumentName", "document", "Document"], "");
             var userName = getJobValue(job, ["userName", "UserName", "user", "User"], "");
             var jobStatus = getJobValue(job, ["jobStatus", "JobStatus", "status", "Status"], "");
-            if (job && job.recentCompleted === true && String(jobStatus).toLowerCase().indexOf("completed") < 0) jobStatus = "Completed";
             var pagesPrinted = getJobValue(job, ["pagesPrinted", "PagesPrinted"], 0);
             var totalPages = getJobValue(job, ["totalPages", "TotalPages"], 0);
             var size = getJobValue(job, ["size", "Size", "jobSize", "JobSize"], "");
+            jobStatus = formatJobStatus(job, jobStatus, Number(pagesPrinted), Number(totalPages));
+            var progress = formatJobProgress(job, pagesPrinted, totalPages);
 
             textCell(row, jobId);
             textCell(row, documentName);
             textCell(row, userName);
             textCell(row, jobStatus);
-            textCell(row, pagesPrinted + "/" + totalPages);
+            textCell(row, progress);
             textCell(row, size);
             var actions = document.createElement("td");
             actions.className = "actions";
             if (job && job.recentCompleted === true) {
-                actions.textContent = "Recent event";
+                actions.textContent = "Sent recently";
                 actions.className += " muted";
             } else {
                 actions.appendChild(button("Pause", "manage_jobs", function () { jobAction("pauseJob", jobId); }));
