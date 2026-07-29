@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.20
+
+- Apply the dark Permissions theme immediately when the dialog is opened from MeshCentral's Action selector.
+- Detect both `click` and `change` opening events without a permanent DOM observer.
+- Inspect only compact control attributes and labels instead of reading `textContent` from large page containers on every click.
+- Retry theme application briefly at 0, 50 and 200 milliseconds to cover asynchronous modal creation.
+
 ## 0.4.19
 
 - Automatically move an active print-job live subscription to the printer whose **Test** button is pressed.

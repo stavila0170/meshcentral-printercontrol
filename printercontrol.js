@@ -91,7 +91,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.19 started with automatic live-event printer switching");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.20 started with immediate permission-dialog theming");
     };
 
     obj.server_shutdown = function () {
@@ -201,19 +201,38 @@ module.exports.printercontrol = function (parent) {
         applyThemeToDialog();
 
         // Avoid a permanent MutationObserver on MeshCentral's entire DOM. The
-        // permissions window is opened by a user click, so apply the theme only
-        // around that click and keep a manual console helper as a fallback.
-        if (!window.__printerControlPermissionsThemeClickHandler) {
-            var permissionClickHandler = function (event) {
+        // permissions window can be opened by either a button click or an Action
+        // select change. Listen only for those user events and inspect compact
+        // attributes instead of reading textContent from large page containers.
+        if (!window.__printerControlPermissionsThemeEventHandler) {
+            var permissionEventHandler = function (event) {
                 var target = event && event.target;
                 var relevant = false;
                 while (target && target !== document) {
                     var id = String(target.id || "").toLowerCase();
-                    var text = String(target.textContent || "").replace(/^\s+|\s+$/g, "").toLowerCase();
                     var onclick = "";
+                    var value = "";
+                    var label = "";
+                    var selectedText = "";
                     try { onclick = String(target.getAttribute && target.getAttribute("onclick") || "").toLowerCase(); } catch (ignore) { }
+                    try { value = String(target.value || "").toLowerCase(); } catch (ignoreValue) { }
+                    try {
+                        label = String(target.getAttribute && (target.getAttribute("aria-label") || target.getAttribute("title")) || "").toLowerCase();
+                    } catch (ignoreLabel) { }
+                    try {
+                        if (target.options && target.selectedIndex >= 0 && target.options[target.selectedIndex]) {
+                            selectedText = String(target.options[target.selectedIndex].text || target.options[target.selectedIndex].textContent || "").toLowerCase();
+                        }
+                    } catch (ignoreOption) { }
+                    var tagName = String(target.tagName || "").toLowerCase();
+                    var compactText = "";
+                    if (tagName === "button" || tagName === "a" || tagName === "label" || tagName === "option") {
+                        try { compactText = String(target.textContent || "").replace(/^\s+|\s+$/g, "").toLowerCase(); } catch (ignoreText) { }
+                    }
                     if (id.indexOf("pluginperm") >= 0 || onclick.indexOf("pluginperm") >= 0 ||
-                            onclick.indexOf("permission") >= 0 || text === "permissions") {
+                            onclick.indexOf("permission") >= 0 || value.indexOf("permission") >= 0 ||
+                            label.indexOf("permission") >= 0 || selectedText.indexOf("permission") >= 0 ||
+                            compactText === "permissions") {
                         relevant = true;
                         break;
                     }
@@ -221,10 +240,12 @@ module.exports.printercontrol = function (parent) {
                 }
                 if (!relevant) return;
                 window.setTimeout(applyThemeToDialog, 0);
-                window.setTimeout(applyThemeToDialog, 100);
+                window.setTimeout(applyThemeToDialog, 50);
+                window.setTimeout(applyThemeToDialog, 200);
             };
-            document.addEventListener("click", permissionClickHandler, true);
-            window.__printerControlPermissionsThemeClickHandler = permissionClickHandler;
+            document.addEventListener("click", permissionEventHandler, true);
+            document.addEventListener("change", permissionEventHandler, true);
+            window.__printerControlPermissionsThemeEventHandler = permissionEventHandler;
         }
 
         // Expose a tiny diagnostic helper in the browser console.

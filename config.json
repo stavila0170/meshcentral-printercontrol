@@ -1,9 +1,9 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.19",
+  "version": "0.4.20",
   "author": "Custom MeshCentral Integration",
-  "description": "Secure Windows printer management with automatic live-event switching, operation countdowns and recoverable endpoint locks.",
+  "description": "Secure Windows printer management with immediate permission theming, live-event switching and operation countdowns.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
   "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",
