@@ -20,6 +20,7 @@
         .badge.bad { color:var(--danger); background:#fee4e2; }
         .badge.unknown { color:#344054; background:#eaecf0; border:1px solid #98a2b3; }
         .message { min-height:34px; margin:9px 0; padding:8px 10px; border-radius:4px; background:#eef4ff; }
+        .message:empty { display:none; }
         .message.error { color:var(--danger); background:#fee4e2; }
         .message.success { color:var(--ok); background:#d1fadf; }
         .panel { margin-top:10px; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
@@ -105,7 +106,23 @@
 "use strict";
 
 var PrinterControl = (function () {
-    var OPERATION_TIMEOUT_MS = 135000;
+    var DEFAULT_OPERATION_TIMEOUT_MS = 135000;
+    var OPERATION_TIMEOUTS_MS = {
+        inventory: 105000,
+        jobs: 60000,
+        cancelJob: 45000,
+        pauseJob: 45000,
+        resumeJob: 45000,
+        testPage: 45000,
+        addTcpPrinter: 105000,
+        deletePrinter: 105000,
+        removePort: 105000,
+        removeDriver: 105000,
+        spoolerStart: 60000,
+        spoolerStop: 60000,
+        spoolerRestart: 75000,
+        clearQueue: 105000
+    };
     var localSharedInventory = { data: null, pending: false, pendingAt: 0, updatedAt: 0 };
     var state = {
         nodeid: new URLSearchParams(window.location.search).get("nodeid"),
@@ -392,6 +409,11 @@ var PrinterControl = (function () {
         return (minutes < 10 ? "0" : "") + minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
     }
 
+    function operationTimeoutMs(operation) {
+        var value = OPERATION_TIMEOUTS_MS[operation];
+        return typeof value === "number" && isFinite(value) && value > 0 ? value : DEFAULT_OPERATION_TIMEOUT_MS;
+    }
+
     function stopOperationTimer() {
         if (state.operationTimer != null) {
             window.clearInterval(state.operationTimer);
@@ -405,7 +427,7 @@ var PrinterControl = (function () {
     function startOperationTimer(prefix, timeoutInMs, updateJobsPlaceholder) {
         stopOperationTimer();
         var duration = Number(timeoutInMs);
-        if (!isFinite(duration) || duration < 0) duration = OPERATION_TIMEOUT_MS;
+        if (!isFinite(duration) || duration < 0) duration = DEFAULT_OPERATION_TIMEOUT_MS;
         state.operationDeadline = Date.now() + duration;
         state.operationTimerPrefix = String(prefix || "Printer operation running");
         state.operationTimerJobsPlaceholder = updateJobsPlaceholder === true;
@@ -504,7 +526,7 @@ var PrinterControl = (function () {
             setSpoolerBadge("Restarting...");
         }
 
-        startOperationTimer("Running " + operation, OPERATION_TIMEOUT_MS, operation === "jobs" && !state.jobsRequestSilent);
+        startOperationTimer("Running " + operation, operationTimeoutMs(operation), operation === "jobs" && !state.jobsRequestSilent);
         parent.meshserver.send({
             action: "plugin",
             plugin: "printercontrol",
@@ -761,7 +783,14 @@ var PrinterControl = (function () {
                 var waitingForSharedInventory = sharedInventoryIsPending(shared);
                 if (firstPermissionsResult && shared.data) {
                     renderInventory(shared.data);
-                    setMessage(waitingForSharedInventory ? "Showing the last inventory while an update is already running..." : "Printer inventory restored.", "success");
+                    if (waitingForSharedInventory) {
+                        setMessage("Showing the last inventory while an update is already running...", "success");
+                    } else {
+                        // MeshCentral rebuilds plugin pages during periodic device
+                        // refreshes. Cached inventory restoration is expected and
+                        // should not look like a new user-visible operation.
+                        setMessage("");
+                    }
                 }
                 if (waitingForSharedInventory) {
                     state.inventoryRequestInFlight = true;

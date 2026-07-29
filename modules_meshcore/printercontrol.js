@@ -9,7 +9,7 @@
 "use strict";
 
 var mesh;
-var SCRIPT_VERSION = "0.4.20";
+var SCRIPT_VERSION = "0.4.21";
 var SCRIPT_GZIP_BASE64 = "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";
 var ALLOWED_ACTIONS = {
     inventory: true,
@@ -36,19 +36,45 @@ var jobWatcherHardTimer = null;
 var jobWatcherStartedAt = 0;
 var activePrinterOperation = null;
 var activePrinterOperationStartedAt = 0;
+var activePrinterOperationTimeoutMs = 0;
 var activePrinterProcess = null;
 var DEFAULT_WATCHER_LEASE_MS = 55000;
 var MIN_WATCHER_LEASE_MS = 15000;
 var MAX_WATCHER_LEASE_MS = 120000;
 var WATCHER_HARD_LIMIT_MS = 600000;
-var NORMAL_OPERATION_TIMEOUT_MS = 120000;
+var DEFAULT_OPERATION_TIMEOUT_MS = 120000;
+var OPERATION_TIMEOUTS_MS = {
+    inventory: 90000,
+    jobs: 45000,
+    cancelJob: 30000,
+    pauseJob: 30000,
+    resumeJob: 30000,
+    testPage: 30000,
+    addTcpPrinter: 90000,
+    deletePrinter: 90000,
+    removePort: 90000,
+    removeDriver: 90000,
+    spoolerStart: 45000,
+    spoolerStop: 45000,
+    spoolerRestart: 60000,
+    clearQueue: 90000
+};
 var MAX_PROCESS_OUTPUT_CHARS = 1048576;
 var MAX_PROCESS_ERROR_CHARS = 16384;
-var WATCHER_MARKER = "MESH_PRINTERCONTROL_WATCHER_0420";
+var WATCHER_MARKER = "MESH_PRINTERCONTROL_WATCHER_0421";
 
 
 function own(object, key) {
     return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function operationTimeoutMs(operation) {
+    var value = OPERATION_TIMEOUTS_MS[operation];
+    return typeof value === "number" && isFinite(value) && value > 0 ? value : DEFAULT_OPERATION_TIMEOUT_MS;
+}
+
+function operationTimeoutError(operation, timeoutMs) {
+    return String(operation || "Printer") + " operation exceeded the " + Math.ceil(timeoutMs / 1000) + "-second endpoint limit";
 }
 
 function isObject(value) {
@@ -194,6 +220,7 @@ function parsePowerShellResult(stdout) {
 }
 
 function runPowerShell(operation, params, callback) {
+    var timeoutMs = operationTimeoutMs(operation);
     var powershellPath;
     try {
         powershellPath = findPowerShell();
@@ -273,7 +300,7 @@ function runPowerShell(operation, params, callback) {
     child.on("exit", function (code) {
         if (completed) return;
         if (timedOut) {
-            finish({ success: false, error: "Printer operation exceeded the 120-second endpoint limit" });
+            finish({ success: false, error: operationTimeoutError(operation, timeoutMs) });
             return;
         }
         if (outputExceeded) {
@@ -292,8 +319,8 @@ function runPowerShell(operation, params, callback) {
         if (completed) return;
         timedOut = true;
         try { child.kill(); } catch (ignoreTimeoutKill) { }
-        finish({ success: false, error: "Printer operation exceeded the 120-second endpoint limit" });
-    }, NORMAL_OPERATION_TIMEOUT_MS);
+        finish({ success: false, error: operationTimeoutError(operation, timeoutMs) });
+    }, timeoutMs);
 
     // MeshAgent's Windows command-line builder can corrupt arguments longer
     // than roughly 4 KiB. Transfer the program through stdin and close it after
@@ -666,13 +693,14 @@ function consoleaction(args, rights, sessionid, parent) {
         return;
     }
     if (activePrinterOperation != null &&
-            (Date.now() - activePrinterOperationStartedAt) > (NORMAL_OPERATION_TIMEOUT_MS + 5000)) {
+            (Date.now() - activePrinterOperationStartedAt) > (activePrinterOperationTimeoutMs + 5000)) {
         try {
             if (activePrinterProcess && typeof activePrinterProcess.kill === "function") activePrinterProcess.kill();
         } catch (ignoreStaleKill) { }
         activePrinterProcess = null;
         activePrinterOperation = null;
         activePrinterOperationStartedAt = 0;
+        activePrinterOperationTimeoutMs = 0;
     }
     if (activePrinterOperation != null) {
         sendResult(args.requestId, operation, {
@@ -684,10 +712,12 @@ function consoleaction(args, rights, sessionid, parent) {
 
     activePrinterOperation = args.requestId;
     activePrinterOperationStartedAt = Date.now();
+    activePrinterOperationTimeoutMs = operationTimeoutMs(operation);
     runPowerShell(operation, params, function (result) {
         if (activePrinterOperation === args.requestId) {
             activePrinterOperation = null;
             activePrinterOperationStartedAt = 0;
+            activePrinterOperationTimeoutMs = 0;
         }
         sendResult(args.requestId, operation, result);
     });

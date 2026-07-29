@@ -35,7 +35,23 @@ module.exports.printercontrol = function (parent) {
     var MAX_COALESCED_READ_WAITERS = 16;
     var MAX_QUEUED_READS_PER_NODE = 8;
     var QUEUED_READ_TTL_MS = 150000;
-    var OPERATION_TIMEOUT_MS = 135000;
+    var DEFAULT_OPERATION_TIMEOUT_MS = 135000;
+    var OPERATION_TIMEOUTS_MS = {
+        inventory: 105000,
+        jobs: 60000,
+        cancelJob: 45000,
+        pauseJob: 45000,
+        resumeJob: 45000,
+        testPage: 45000,
+        addTcpPrinter: 105000,
+        deletePrinter: 105000,
+        removePort: 105000,
+        removeDriver: 105000,
+        spoolerStart: 60000,
+        spoolerStop: 60000,
+        spoolerRestart: 75000,
+        clearQueue: 105000
+    };
 
     var ACTION_PERMISSIONS = {
         inventory: "can_view",
@@ -91,7 +107,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.20 started with immediate permission-dialog theming");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.21 started with operation-specific timeout recovery");
     };
 
     obj.server_shutdown = function () {
@@ -568,6 +584,11 @@ module.exports.printercontrol = function (parent) {
         return count;
     }
 
+    function operationTimeoutMs(operation) {
+        var value = OPERATION_TIMEOUTS_MS[operation];
+        return typeof value === "number" && isFinite(value) && value > 0 ? value : DEFAULT_OPERATION_TIMEOUT_MS;
+    }
+
     function totalSubscriptionCount() {
         var count = 0;
         for (var nodeid in obj.jobSubscriptions) {
@@ -649,6 +670,7 @@ module.exports.printercontrol = function (parent) {
         }
 
         var requestId = crypto.randomBytes(18).toString("hex");
+        var timeoutMs = operationTimeoutMs(item.operation);
         obj.activeOperations[item.nodeid] = requestId;
         var timer = setTimeout(function () {
             var pending = obj.pending[requestId];
@@ -657,7 +679,7 @@ module.exports.printercontrol = function (parent) {
             releaseActiveOperation(pending.nodeid, requestId);
             notifyPendingOperation(pending, requestId, false, "Printer operation timed out", null);
             dispatchNextRead(pending.nodeid);
-        }, OPERATION_TIMEOUT_MS);
+        }, timeoutMs);
 
         obj.pending[requestId] = {
             nodeid: item.nodeid,
@@ -668,6 +690,7 @@ module.exports.printercontrol = function (parent) {
             session: item.session,
             userid: item.userid,
             startedAt: Date.now(),
+            timeoutMs: timeoutMs,
             timer: timer
         };
 
@@ -691,7 +714,7 @@ module.exports.printercontrol = function (parent) {
             nodeid: item.nodeid,
             operation: item.operation,
             clientRequestId: item.clientRequestId || null,
-            timeoutInMs: OPERATION_TIMEOUT_MS
+            timeoutInMs: timeoutMs
         }));
         return true;
     }
@@ -700,7 +723,7 @@ module.exports.printercontrol = function (parent) {
         var queue = readQueue(item.nodeid, true);
         if (queue.length >= MAX_QUEUED_READS_PER_NODE) return false;
         var remainingTimeout = Number(activeTimeoutInMs);
-        if (!isFinite(remainingTimeout) || remainingTimeout < 0) remainingTimeout = OPERATION_TIMEOUT_MS;
+        if (!isFinite(remainingTimeout) || remainingTimeout < 0) remainingTimeout = operationTimeoutMs(activeOperation);
         item.queuedAt = Date.now();
         queue.push(item);
         sendToSession(item.session, browserMessage("queued", {
@@ -1161,7 +1184,8 @@ module.exports.printercontrol = function (parent) {
                             nodeid: command.nodeid,
                             operation: operation,
                             clientRequestId: clientRequestId,
-                            timeoutInMs: Math.max(0, OPERATION_TIMEOUT_MS - (Date.now() - Number(activePending.startedAt || Date.now())))
+                            timeoutInMs: Math.max(0, Number(activePending.timeoutMs || operationTimeoutMs(activePending.operation)) -
+                                (Date.now() - Number(activePending.startedAt || Date.now())))
                         }));
                         obj.debug("plugin:printercontrol", "Coalesced duplicate " + operation + " request for " + command.nodeid);
                         return;
@@ -1176,7 +1200,8 @@ module.exports.printercontrol = function (parent) {
                             session: session,
                             userid: user._id
                         }, activePending && activePending.operation,
-                            activePending ? Math.max(0, OPERATION_TIMEOUT_MS - (Date.now() - Number(activePending.startedAt || Date.now()))) : OPERATION_TIMEOUT_MS)) {
+                            activePending ? Math.max(0, Number(activePending.timeoutMs || operationTimeoutMs(activePending.operation)) -
+                                (Date.now() - Number(activePending.startedAt || Date.now()))) : operationTimeoutMs(operation))) {
                             fail(session, operation, "Too many printer reads are already waiting for this device", null, clientRequestId);
                         }
                         return;

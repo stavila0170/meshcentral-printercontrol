@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.21
+
+- Replace the single 120/135-second limit with operation-specific endpoint and server timeouts.
+- Stop a stuck `testPage` PowerShell/CIM request after 30 seconds and release the server lock within a 45-second safety window.
+- Limit print-job reads and job actions to 45/30 seconds on the endpoint, with corresponding server margins.
+- Keep longer safety windows for inventory, printer installation/removal and queue cleanup.
+- Send the operation-specific server limit to the browser countdown for direct, coalesced and queued work.
+- Use the active operation's own timeout when recovering stale endpoint and server locks.
+- Restore cached inventory silently when MeshCentral's periodic device refresh rebuilds the plugin iframe.
+
 ## 0.4.20
 
 - Apply the dark Permissions theme immediately when the dialog is opened from MeshCentral's Action selector.
