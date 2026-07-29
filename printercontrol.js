@@ -91,7 +91,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.17 started with queued endpoint reads and recoverable locks");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.19 started with automatic live-event printer switching");
     };
 
     obj.server_shutdown = function () {
@@ -666,19 +666,28 @@ module.exports.printercontrol = function (parent) {
             dispatchNextRead(item.nodeid);
             return false;
         }
+        sendToSession(item.session, browserMessage("started", {
+            nodeid: item.nodeid,
+            operation: item.operation,
+            clientRequestId: item.clientRequestId || null,
+            timeoutInMs: OPERATION_TIMEOUT_MS
+        }));
         return true;
     }
 
-    function queueReadOperation(item, activeOperation) {
+    function queueReadOperation(item, activeOperation, activeTimeoutInMs) {
         var queue = readQueue(item.nodeid, true);
         if (queue.length >= MAX_QUEUED_READS_PER_NODE) return false;
+        var remainingTimeout = Number(activeTimeoutInMs);
+        if (!isFinite(remainingTimeout) || remainingTimeout < 0) remainingTimeout = OPERATION_TIMEOUT_MS;
         item.queuedAt = Date.now();
         queue.push(item);
         sendToSession(item.session, browserMessage("queued", {
             nodeid: item.nodeid,
             operation: item.operation,
             clientRequestId: item.clientRequestId || null,
-            activeOperation: activeOperation || null
+            activeOperation: activeOperation || null,
+            timeoutInMs: remainingTimeout
         }));
         return true;
     }
@@ -1127,6 +1136,12 @@ module.exports.printercontrol = function (parent) {
                             userid: user._id,
                             clientRequestId: clientRequestId
                         });
+                        sendToSession(session, browserMessage("started", {
+                            nodeid: command.nodeid,
+                            operation: operation,
+                            clientRequestId: clientRequestId,
+                            timeoutInMs: Math.max(0, OPERATION_TIMEOUT_MS - (Date.now() - Number(activePending.startedAt || Date.now())))
+                        }));
                         obj.debug("plugin:printercontrol", "Coalesced duplicate " + operation + " request for " + command.nodeid);
                         return;
                     }
@@ -1139,7 +1154,8 @@ module.exports.printercontrol = function (parent) {
                             waiters: [],
                             session: session,
                             userid: user._id
-                        }, activePending && activePending.operation)) {
+                        }, activePending && activePending.operation,
+                            activePending ? Math.max(0, OPERATION_TIMEOUT_MS - (Date.now() - Number(activePending.startedAt || Date.now()))) : OPERATION_TIMEOUT_MS)) {
                             fail(session, operation, "Too many printer reads are already waiting for this device", null, clientRequestId);
                         }
                         return;

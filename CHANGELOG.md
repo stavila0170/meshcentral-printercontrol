@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.19
+
+- Automatically move an active print-job live subscription to the printer whose **Test** button is pressed.
+- Wait for the server to confirm the updated printer filter before starting the test page.
+- Select the target printer and show its print-job panel while the test page is being monitored.
+- Reuse the existing subscription and endpoint watcher instead of stopping and recreating live monitoring.
+- Discard delayed events and short-lived completed-job entries from the previously monitored printer.
+
+## 0.4.18
+
+- Display a `MM:SS` countdown while a printer operation is running or waiting for the current endpoint operation.
+- Send the authoritative remaining server timeout to the browser for direct, coalesced and queued reads.
+- Restart the countdown when a queued read begins its own endpoint operation.
+- Update the countdown locally once per second without adding MeshCentral or MeshAgent traffic.
+- Stop the timer immediately when the operation completes, fails or the agent goes offline.
+
 ## 0.4.17
 
 - Queue inventory and print-job reads per device when another endpoint operation is still finishing instead of returning a blocking error.
