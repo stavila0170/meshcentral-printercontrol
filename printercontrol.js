@@ -31,6 +31,7 @@ module.exports.printercontrol = function (parent) {
     var MAX_SUBSCRIPTIONS_PER_NODE = 8;
     var MAX_SUBSCRIPTIONS_TOTAL = 128;
     var MAX_PENDING_REQUESTS = 256;
+    var MAX_COALESCED_READ_WAITERS = 16;
     var OPERATION_TIMEOUT_MS = 135000;
 
     var ACTION_PERMISSIONS = {
@@ -87,7 +88,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.14 started with asynchronous, serialized endpoint operations");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.15 started with singleton UI and coalesced endpoint reads");
     };
 
     obj.server_shutdown = function () {
@@ -247,6 +248,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral refreshes the device while Desktop is opening, do not reload
         // the plugin and do not start another printer inventory operation.
         var existing = document.getElementById("pluginIframePrinterControl");
+        if (existing && !page.contains(existing)) existing = null;
         var existingNodeKey = existing ? String(existing.getAttribute("data-nodeid") || "") : "";
         if (existing && existingNodeKey !== nodeKey) {
             try {
@@ -255,12 +257,21 @@ module.exports.printercontrol = function (parent) {
                     existing.contentWindow.PrinterControl.unsubscribeJobs();
                 }
             } catch (ignore) { }
+            try {
+                if (existing.parentNode) existing.parentNode.removeChild(existing);
+            } catch (ignoreRemove) { }
             existing = null;
         }
 
         page.setAttribute("data-printercontrol-nodeid", nodeKey);
         if (!existing || existingNodeKey !== nodeKey) {
-            QA("pluginPrinterControl", '<div id="pluginPrinterControlPlaceholder" style="padding:18px;color:#777;text-align:center">Printer Control loads only when the Printers tab is opened.</div>');
+            // QA() appends through innerHTML and can recreate an existing iframe.
+            // Replace the page explicitly so repeated device-refresh callbacks
+            // cannot leave multiple placeholders or duplicate plugin frames.
+            page.innerHTML = '<div id="pluginPrinterControlPlaceholder" style="padding:18px;color:#777;text-align:center">Printer Control loads only when the Printers tab is opened.</div>';
+        } else {
+            var stalePlaceholder = document.getElementById("pluginPrinterControlPlaceholder");
+            if (stalePlaceholder && stalePlaceholder.parentNode === page) stalePlaceholder.parentNode.removeChild(stalePlaceholder);
         }
 
         function pageIsVisible(element) {
@@ -286,10 +297,43 @@ module.exports.printercontrol = function (parent) {
             if (!currentPage) return false;
             var currentNodeKey = String(currentPage.getAttribute("data-printercontrol-nodeid") || "");
             if (!currentNodeKey) return false;
-            var currentIframe = document.getElementById("pluginIframePrinterControl");
-            if (currentIframe && String(currentIframe.getAttribute("data-nodeid") || "") === currentNodeKey) return true;
+            var currentIframe = null;
+            var frames = currentPage.querySelectorAll("iframe");
+            for (var frameIndex = 0; frameIndex < frames.length; frameIndex++) {
+                var candidate = frames[frameIndex];
+                var candidateNodeKey = String(candidate.getAttribute("data-nodeid") || "");
+                if (currentIframe == null && candidate.id === "pluginIframePrinterControl" && candidateNodeKey === currentNodeKey) {
+                    currentIframe = candidate;
+                } else {
+                    try {
+                        if (candidate.contentWindow && candidate.contentWindow.PrinterControl &&
+                                typeof candidate.contentWindow.PrinterControl.unsubscribeJobs === "function") {
+                            candidate.contentWindow.PrinterControl.unsubscribeJobs();
+                        }
+                    } catch (ignoreFrame) { }
+                    try {
+                        if (candidate.parentNode === currentPage) currentPage.removeChild(candidate);
+                    } catch (ignoreFrameRemove) { }
+                }
+            }
+            if (currentIframe) {
+                var oldPlaceholder = document.getElementById("pluginPrinterControlPlaceholder");
+                if (oldPlaceholder && oldPlaceholder.parentNode === currentPage) oldPlaceholder.parentNode.removeChild(oldPlaceholder);
+                return true;
+            }
             if (force !== true && !pageIsVisible(currentPage)) return false;
-            QA("pluginPrinterControl", '<iframe id="pluginIframePrinterControl" data-nodeid="' + currentNodeKey + '" title="Printer Control" style="width:100%;height:760px;overflow:auto" scrolling="yes" frameBorder="0" src="/pluginadmin.ashx?pin=printercontrol&user=1&nodeid=' + currentNodeKey + '"></iframe>');
+            currentPage.innerHTML = "";
+            currentIframe = document.createElement("iframe");
+            currentIframe.id = "pluginIframePrinterControl";
+            currentIframe.setAttribute("data-nodeid", currentNodeKey);
+            currentIframe.setAttribute("title", "Printer Control");
+            currentIframe.setAttribute("scrolling", "yes");
+            currentIframe.setAttribute("frameBorder", "0");
+            currentIframe.style.width = "100%";
+            currentIframe.style.height = "760px";
+            currentIframe.style.overflow = "auto";
+            currentIframe.src = "/pluginadmin.ashx?pin=printercontrol&user=1&nodeid=" + currentNodeKey;
+            currentPage.appendChild(currentIframe);
             return true;
         };
 
@@ -527,6 +571,32 @@ module.exports.printercontrol = function (parent) {
 
     function releaseActiveOperation(nodeid, requestId) {
         if (nodeid && obj.activeOperations[nodeid] === requestId) delete obj.activeOperations[nodeid];
+    }
+
+    function canCoalesceRead(pending, operation, params) {
+        if (!pending || pending.kind || pending.operation !== operation) return false;
+        if (operation === "inventory") return true;
+        if (operation !== "jobs") return false;
+        var activePrinter = pending.params && pending.params.printerName;
+        var requestedPrinter = params && params.printerName;
+        return typeof activePrinter === "string" && activePrinter === requestedPrinter;
+    }
+
+    function notifyPendingOperation(pending, requestId, success, error, data) {
+        var recipients = [{
+            session: pending.session,
+            clientRequestId: pending.clientRequestId || null
+        }].concat(Array.isArray(pending.waiters) ? pending.waiters : []);
+        for (var i = 0; i < recipients.length; i++) {
+            sendToSession(recipients[i].session, browserMessage("result", {
+                requestId: requestId,
+                clientRequestId: recipients[i].clientRequestId || null,
+                operation: pending.operation,
+                success: success === true,
+                error: success === true ? null : String(error || "Operation failed"),
+                data: data == null ? null : data
+            }));
+        }
     }
 
     function removeSubscriptionsForSession(nodeid, session) {
@@ -934,7 +1004,26 @@ module.exports.printercontrol = function (parent) {
                 // Serialize all PowerShell work per endpoint. This protects the
                 // shared MeshAgent process from overlapping reads and mutations
                 // initiated by repeated clicks or multiple browser sessions.
-                if (obj.activeOperations[command.nodeid]) {
+                var activeRequestId = obj.activeOperations[command.nodeid];
+                if (activeRequestId) {
+                    var activePending = obj.pending[activeRequestId];
+                    if (!activePending) {
+                        delete obj.activeOperations[command.nodeid];
+                        activeRequestId = null;
+                    }
+                }
+                if (activeRequestId) {
+                    activePending = obj.pending[activeRequestId];
+                    if (canCoalesceRead(activePending, operation, command.params || {}) &&
+                            activePending.waiters.length < MAX_COALESCED_READ_WAITERS) {
+                        activePending.waiters.push({
+                            session: session,
+                            userid: user._id,
+                            clientRequestId: clientRequestId
+                        });
+                        obj.debug("plugin:printercontrol", "Coalesced duplicate " + operation + " request for " + command.nodeid);
+                        return;
+                    }
                     fail(session, operation, "Another printer operation is already running for this device", null, clientRequestId);
                     return;
                 }
@@ -949,7 +1038,7 @@ module.exports.printercontrol = function (parent) {
                     if (!pending) return;
                     delete obj.pending[requestId];
                     releaseActiveOperation(pending.nodeid, requestId);
-                    fail(pending.session, pending.operation, "Printer operation timed out", requestId, pending.clientRequestId);
+                    notifyPendingOperation(pending, requestId, false, "Printer operation timed out", null);
                 }, OPERATION_TIMEOUT_MS);
 
                 obj.pending[requestId] = {
@@ -957,6 +1046,7 @@ module.exports.printercontrol = function (parent) {
                     operation: operation,
                     clientRequestId: clientRequestId,
                     params: command.params || {},
+                    waiters: [],
                     session: session,
                     userid: user._id,
                     timer: timer
@@ -1032,14 +1122,13 @@ module.exports.printercontrol = function (parent) {
             auditRecord.error = String(command.error || "Operation failed").substring(0, 500);
         }
         obj.debug("plugin:printercontrol", "audit " + JSON.stringify(auditRecord));
-        sendToSession(pending.session, browserMessage("result", {
-            requestId: command.requestId,
-            clientRequestId: pending.clientRequestId || null,
-            operation: pending.operation,
-            success: command.success === true,
-            error: command.success === true ? null : String(command.error || "Operation failed"),
-            data: command.data == null ? null : command.data
-        }));
+        notifyPendingOperation(
+            pending,
+            command.requestId,
+            command.success === true,
+            command.error || "Operation failed",
+            command.data
+        );
     }
 
     obj.serveraction = function (command, myparent, grandparent) {

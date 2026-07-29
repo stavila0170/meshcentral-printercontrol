@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.15
+
+- Replace the Printers-page placeholder instead of appending through MeshCentral's `QA()` helper, which could recreate an existing iframe.
+- Guarantee one Printer Control iframe per device page and remove stale or duplicate frames before loading.
+- Coalesce duplicate inventory requests and same-printer queue reads into the already-running endpoint operation.
+- Return the shared result to every waiting browser using its own client request identifier.
+- Self-heal stale per-node operation locks whose pending request no longer exists.
+
 ## 0.4.14
 
 - Replace blocking `child.waitExit()` printer operations with asynchronous PowerShell execution so slow printer providers do not block the MeshAgent event loop.
