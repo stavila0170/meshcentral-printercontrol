@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.15
+
+- Replace the Printers-page placeholder instead of appending through MeshCentral's `QA()` helper, which could recreate an existing iframe.
+- Guarantee one Printer Control iframe per device page and remove stale or duplicate frames before loading.
+- Coalesce duplicate inventory requests and same-printer queue reads into the already-running endpoint operation.
+- Return the shared result to every waiting browser using its own client request identifier.
+- Self-heal stale per-node operation locks whose pending request no longer exists.
+
+## 0.4.14
+
+- Replace blocking `child.waitExit()` printer operations with asynchronous PowerShell execution so slow printer providers do not block the MeshAgent event loop.
+- Enforce a 120-second endpoint timeout with process termination and bounded stdout/stderr collection.
+- Serialize all normal printer PowerShell operations per endpoint in both MeshCentral and MeshAgent, including mutations initiated by multiple sessions.
+- Add browser-generated request correlation identifiers and ignore stale results.
+- Disable printer actions while an operation is active and add a 30-second permissions/status request timeout.
+- Load the iframe from the generic Plugins tab only when the Printer Control child page is actually visible.
+- Remove generic legacy PowerShell process cleanup; new watcher processes carry a unique Printer Control marker for precise future identification.
+- Keep the watcher hard deadline anchored to its actual start time instead of resetting it for existing watchers.
+- Coalesce rapid non-deletion job events before queue snapshots and bound agent-to-server event payloads.
+- Start one watcher for the first subscription only, cap subscriptions and pending requests, and run subscription cleanup only while subscriptions exist.
+- Require agent-originated results and events to match the authoritative MeshAgent node.
+- Remove the obsolete root `printercontrol.handlebars` file containing the stale 0.4.5 MeshCore module.
+
 ## 0.4.13
 
 - Lazy-load the Printer Control iframe only when the **Printers** device tab is actually opened, so opening a device or starting Desktop no longer triggers hidden printer inventory work.
