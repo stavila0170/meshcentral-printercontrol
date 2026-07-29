@@ -105,6 +105,7 @@
 "use strict";
 
 var PrinterControl = (function () {
+    var localSharedInventory = { data: null, pending: false, pendingAt: 0, updatedAt: 0 };
     var state = {
         nodeid: new URLSearchParams(window.location.search).get("nodeid"),
         online: false,
@@ -136,6 +137,27 @@ var PrinterControl = (function () {
     };
 
     function hasPermission(name) { return state.permissions.indexOf(name) >= 0; }
+
+    function sharedInventory() {
+        try {
+            if (!parent.__printerControlSharedInventory) parent.__printerControlSharedInventory = {};
+            var key = String(state.nodeid || "");
+            if (!parent.__printerControlSharedInventory[key]) {
+                parent.__printerControlSharedInventory[key] = { data: null, pending: false, pendingAt: 0, updatedAt: 0 };
+            }
+            return parent.__printerControlSharedInventory[key];
+        } catch (ignore) {
+            return localSharedInventory;
+        }
+    }
+
+    function sharedInventoryIsPending(shared) {
+        if (!shared || shared.pending !== true) return false;
+        if ((Date.now() - Number(shared.pendingAt || 0)) <= 150000) return true;
+        shared.pending = false;
+        shared.pendingAt = 0;
+        return false;
+    }
 
 
     function createSubscriptionId() {
@@ -363,6 +385,14 @@ var PrinterControl = (function () {
             if (!options.silent) setMessage("Inventory refresh is already running.");
             return false;
         }
+        if (operation === "inventory") {
+            var shared = sharedInventory();
+            if (sharedInventoryIsPending(shared)) {
+                state.inventoryRequestInFlight = true;
+                if (!options.silent) setMessage("Waiting for the printer inventory already running on this device...");
+                return false;
+            }
+        }
         if (operation === "jobs" && state.jobsRequestInFlight) return false;
 
         var clientRequestId = createSubscriptionId();
@@ -373,6 +403,8 @@ var PrinterControl = (function () {
         // previous manual or post-operation refresh is still pending.
         if (operation === "inventory") {
             state.inventoryRequestInFlight = true;
+            shared.pending = true;
+            shared.pendingAt = Date.now();
             state.preserveSpoolerBadgeOnInventoryFailure = options.preserveSpoolerBadge === true;
             if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Checking...");
         } else if (operation === "jobs") {
@@ -620,7 +652,18 @@ var PrinterControl = (function () {
             } else if (firstPermissionsResult || manualRefreshRequested) {
                 // Load inventory once when the page opens, and thereafter only
                 // when the user presses Refresh or an operation needs one update.
-                refresh(false, false);
+                var shared = sharedInventory();
+                var waitingForSharedInventory = sharedInventoryIsPending(shared);
+                if (firstPermissionsResult && shared.data) {
+                    renderInventory(shared.data);
+                    setMessage(waitingForSharedInventory ? "Showing the last inventory while an update is already running..." : "Printer inventory restored.", "success");
+                }
+                if (waitingForSharedInventory) {
+                    state.inventoryRequestInFlight = true;
+                    if (!shared.data) setMessage("Waiting for the printer inventory already running on this device...");
+                } else if (manualRefreshRequested || !shared.data) {
+                    refresh(false, false);
+                }
             }
             return;
         }
@@ -702,6 +745,9 @@ var PrinterControl = (function () {
                 }
             } else if (message.operation === "inventory") {
                 state.inventoryRequestInFlight = false;
+                var failedSharedInventory = sharedInventory();
+                failedSharedInventory.pending = false;
+                failedSharedInventory.pendingAt = 0;
                 if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Unknown");
                 state.preserveSpoolerBadgeOnInventoryFailure = false;
             } else if (message.operation === "jobs") {
@@ -723,6 +769,11 @@ var PrinterControl = (function () {
 
         if (message.operation === "inventory") {
             state.inventoryRequestInFlight = false;
+            var completedSharedInventory = sharedInventory();
+            completedSharedInventory.pending = false;
+            completedSharedInventory.pendingAt = 0;
+            completedSharedInventory.data = message.data;
+            completedSharedInventory.updatedAt = Date.now();
             renderInventory(message.data);
             return;
         }

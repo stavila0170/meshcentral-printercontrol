@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.16
+
+- Preserve the latest inventory and its in-flight state in the MeshCentral parent window, keyed by node id.
+- Reuse cached inventory when returning to the Printers tab instead of automatically launching another endpoint operation.
+- Let a recreated iframe wait for the existing inventory result, which MeshCentral routes to the current plugin message handler.
+- Expire abandoned shared in-flight markers after 150 seconds, slightly beyond the server operation timeout.
+
 ## 0.4.15
 
 - Replace the Printers-page placeholder instead of appending through MeshCentral's `QA()` helper, which could recreate an existing iframe.
