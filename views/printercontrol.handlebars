@@ -123,6 +123,7 @@ var PrinterControl = (function () {
         spoolerRestart: 75000,
         clearQueue: 105000
     };
+    var TEST_PAGE_JOB_RETRY_DELAYS_MS = [750, 1750];
     var localSharedInventory = { data: null, pending: false, pendingAt: 0, updatedAt: 0 };
     var state = {
         nodeid: new URLSearchParams(window.location.search).get("nodeid"),
@@ -157,6 +158,10 @@ var PrinterControl = (function () {
         recentCompletedTimer: null,
         recentCompletedToken: 0,
         pendingJobEvent: null,
+        testPageJobPrinter: null,
+        testPageJobRetryIndex: 0,
+        testPageJobRetryTimer: null,
+        testPageEventPrinter: null,
         unloading: false
     };
 
@@ -319,6 +324,7 @@ var PrinterControl = (function () {
 
     function unsubscribeJobs() {
         state.unloading = true;
+        stopTestPageJobDiscovery();
         return stopLiveEvents(null, true);
     }
 
@@ -336,15 +342,13 @@ var PrinterControl = (function () {
     }
 
     function switchLiveEventsForTest(printerName) {
-        clearPendingJobEvents();
         state.selectedPrinter = printerName;
         state.subscriptionPrinter = printerName;
         state.subscriptionActive = false;
         state.liveSwitchInFlight = true;
         state.pendingTestPrinter = printerName;
         stopLiveTimers();
-        document.getElementById("jobsTitle").textContent = "Print jobs — " + printerName;
-        showJobsPlaceholder("Switching live events to " + printerName + "...", false);
+        showPendingTestPageJob(printerName, "Preparing live monitoring...");
         setLiveBadge("Switching live events...", "unknown");
         setMessage("Switching live events to " + printerName + " before printing the test page...");
         updateButtons();
@@ -613,6 +617,68 @@ var PrinterControl = (function () {
         body.appendChild(row);
     }
 
+    function showPendingTestPageJob(printerName, status) {
+        state.selectedPrinter = printerName;
+        document.getElementById("jobsTitle").textContent = "Print jobs — " + printerName;
+        var body = document.getElementById("jobRows");
+        body.textContent = "";
+        var row = document.createElement("tr");
+        textCell(row, "—");
+        textCell(row, "Windows Test Page");
+        textCell(row, "");
+        textCell(row, status || "Submitting...");
+        textCell(row, "—");
+        textCell(row, "—");
+        var action = textCell(row, "Waiting");
+        action.className = "muted";
+        body.appendChild(row);
+    }
+
+    function stopTestPageJobDiscovery() {
+        if (state.testPageJobRetryTimer != null) {
+            window.clearTimeout(state.testPageJobRetryTimer);
+            state.testPageJobRetryTimer = null;
+        }
+        state.testPageJobPrinter = null;
+        state.testPageJobRetryIndex = 0;
+    }
+
+    function scheduleTestPageJobRetry() {
+        if (!state.testPageJobPrinter ||
+                state.testPageJobRetryIndex >= TEST_PAGE_JOB_RETRY_DELAYS_MS.length) {
+            var completedPrinter = state.testPageJobPrinter;
+            stopTestPageJobDiscovery();
+            if (completedPrinter) {
+                state.testPageEventPrinter = null;
+                showJobsPlaceholder("No active print job was detected. It may have completed already or the printer may require interactive input.", false);
+                setMessage("The test-page command completed, but no active queue item was detected for " + completedPrinter + ".");
+            }
+            return false;
+        }
+        var delay = TEST_PAGE_JOB_RETRY_DELAYS_MS[state.testPageJobRetryIndex++];
+        var printerName = state.testPageJobPrinter;
+        showPendingTestPageJob(printerName, "Waiting for queue...");
+        state.testPageJobRetryTimer = window.setTimeout(function () {
+            state.testPageJobRetryTimer = null;
+            if (!state.testPageJobPrinter ||
+                    String(state.testPageJobPrinter).toLowerCase() !== String(printerName).toLowerCase() ||
+                    String(state.selectedPrinter || "").toLowerCase() !== String(printerName).toLowerCase()) {
+                stopTestPageJobDiscovery();
+                return;
+            }
+            if (!loadJobs(printerName, true)) scheduleTestPageJobRetry();
+        }, delay);
+        return true;
+    }
+
+    function beginTestPageJobDiscovery(printerName) {
+        stopTestPageJobDiscovery();
+        state.testPageJobPrinter = printerName;
+        state.testPageJobRetryIndex = 0;
+        showPendingTestPageJob(printerName, "Checking print queue...");
+        if (!loadJobs(printerName, true)) scheduleTestPageJobRetry();
+    }
+
     function getJobValue(job, names, fallback) {
         if (!job || typeof job !== "object") return fallback;
         for (var i = 0; i < names.length; i++) {
@@ -683,6 +749,7 @@ var PrinterControl = (function () {
             return false;
         }
         var changedPrinter = state.selectedPrinter !== printerName;
+        if (changedPrinter && state.testPageJobPrinter) stopTestPageJobDiscovery();
         if (changedPrinter && (state.liveRequested || state.subscriptionActive)) {
             stopLiveEvents("Live monitoring stopped because a different printer was selected.", true);
         }
@@ -697,13 +764,15 @@ var PrinterControl = (function () {
             setMessage("Wait for the current printer operation to finish.");
             return false;
         }
+        stopTestPageJobDiscovery();
+        state.testPageEventPrinter = null;
+        clearPendingJobEvents();
+        state.selectedPrinter = printerName;
+        showPendingTestPageJob(printerName, "Submitting...");
+        updateButtons();
         var liveActive = state.liveRequested || state.subscriptionActive;
         if (liveActive) {
             var monitoredPrinter = state.subscriptionPrinter || state.selectedPrinter || "";
-            state.selectedPrinter = printerName;
-            document.getElementById("jobsTitle").textContent = "Print jobs — " + printerName;
-            showJobsPlaceholder("Waiting for test-page print events...", false);
-            updateButtons();
             if (String(monitoredPrinter).toLowerCase() !== String(printerName).toLowerCase()) {
                 return switchLiveEventsForTest(printerName);
             }
@@ -817,7 +886,7 @@ var PrinterControl = (function () {
                     String(state.subscriptionPrinter || "").toLowerCase() === String(pendingTestPrinter).toLowerCase()) {
                 state.pendingTestPrinter = null;
                 state.liveSwitchInFlight = false;
-                showJobsPlaceholder("Waiting for test-page print events...", false);
+                showPendingTestPageJob(pendingTestPrinter, "Submitting...");
                 updateButtons();
                 send("testPage", { printerName: pendingTestPrinter });
                 return;
@@ -862,6 +931,12 @@ var PrinterControl = (function () {
         if (message.type === "jobEvent") {
             if (message.subscriptionId !== state.subscriptionId || !state.selectedPrinter || !message.event) return;
             if (String(message.event.printerName || "").toLowerCase() !== String(state.selectedPrinter).toLowerCase()) return;
+            if (state.activeOperation === "testPage" ||
+                    (state.testPageJobPrinter &&
+                     String(state.testPageJobPrinter).toLowerCase() === String(state.selectedPrinter).toLowerCase())) {
+                state.testPageEventPrinter = state.selectedPrinter;
+            }
+            stopTestPageJobDiscovery();
             scheduleEventRender(message.event);
             return;
         }
@@ -913,7 +988,25 @@ var PrinterControl = (function () {
                 state.jobsRequestInFlight = false;
                 suppressErrorMessage = state.jobsRequestSilent;
                 state.jobsRequestSilent = false;
-                showJobsPlaceholder(message.error || "Unable to load print jobs.", true);
+                var failedEventResult = state.testPageEventPrinter &&
+                    String(state.testPageEventPrinter).toLowerCase() === String(state.selectedPrinter || "").toLowerCase();
+                var failedDiscovery = state.testPageJobPrinter &&
+                    String(state.testPageJobPrinter).toLowerCase() === String(state.selectedPrinter || "").toLowerCase();
+                if (failedEventResult) {
+                    stopTestPageJobDiscovery();
+                    state.testPageEventPrinter = null;
+                    suppressErrorMessage = true;
+                } else if (failedDiscovery) {
+                    scheduleTestPageJobRetry();
+                    suppressErrorMessage = true;
+                } else {
+                    showJobsPlaceholder(message.error || "Unable to load print jobs.", true);
+                }
+            } else if (message.operation === "testPage") {
+                stopTestPageJobDiscovery();
+                state.testPageEventPrinter = null;
+                showJobsPlaceholder("The test page could not be submitted: " +
+                    (message.error || "Printer operation failed."), true);
             } else if (message.operation === "subscribeJobs" || message.operation === "heartbeatJobs") {
                 clearLiveState();
                 setLiveBadge("Live events unavailable", "bad");
@@ -941,8 +1034,43 @@ var PrinterControl = (function () {
             var silentJobsResult = state.jobsRequestSilent;
             state.jobsRequestInFlight = false;
             state.jobsRequestSilent = false;
-            if (!silentJobsResult) setMessage("Print jobs loaded.", "success");
-            renderJobs(message.data);
+            var jobs = normalizeJobs(message.data);
+            var resultPrinter = message.data && message.data.printerName ?
+                message.data.printerName : state.selectedPrinter;
+            var eventAlreadyDisplayed = silentJobsResult && state.testPageEventPrinter &&
+                String(state.testPageEventPrinter).toLowerCase() === String(resultPrinter || "").toLowerCase();
+            var discoveryResult = state.testPageJobPrinter &&
+                String(state.testPageJobPrinter).toLowerCase() === String(resultPrinter || "").toLowerCase();
+            if (eventAlreadyDisplayed) {
+                stopTestPageJobDiscovery();
+                state.testPageEventPrinter = null;
+            } else if (discoveryResult) {
+                if (jobs.length) {
+                    stopTestPageJobDiscovery();
+                    state.testPageEventPrinter = null;
+                    renderJobs(message.data);
+                    setMessage("The test-page print job was detected.", "success");
+                } else {
+                    scheduleTestPageJobRetry();
+                }
+            } else {
+                if (!silentJobsResult) setMessage("Print jobs loaded.", "success");
+                renderJobs(message.data);
+            }
+            return;
+        }
+
+        if (message.operation === "testPage") {
+            var testPrinter = message.data && message.data.printerName ?
+                message.data.printerName : state.selectedPrinter;
+            if (state.testPageEventPrinter &&
+                    String(state.testPageEventPrinter).toLowerCase() === String(testPrinter || "").toLowerCase()) {
+                state.testPageEventPrinter = null;
+                setMessage("The test-page print job was detected.", "success");
+                return;
+            }
+            setMessage("Test-page command accepted. Checking the print queue...", "success");
+            beginTestPageJobDiscovery(testPrinter);
             return;
         }
 

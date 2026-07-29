@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.22
+
+- Display a provisional `Windows Test Page` job immediately when **Test** is pressed, including when live events are off.
+- Query the selected print queue immediately after Windows accepts the test-page command.
+- Retry an empty queue only twice, after 750 and 1750 milliseconds, without enabling background polling.
+- Replace the indefinite `Waiting for test-page print events...` state with a clear final result when no active queue item can be observed.
+- Handle virtual printers such as OneNote and interactive-output drivers without leaving the print-job panel blocked.
+- Stop bounded queue discovery as soon as a matching live print-job event arrives.
+- Preserve a matching live event when it arrives before the test-page command response or an in-flight queue check.
+
 ## 0.4.21
 
 - Replace the single 120/135-second limit with operation-specific endpoint and server timeouts.
