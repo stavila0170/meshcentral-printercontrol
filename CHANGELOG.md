@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.25
+
+- Add a dedicated `Live print activity — all printers` feed instead of forcing simultaneous events into one selected-printer table.
+- Preserve up to 100 status transitions with time, printer, job ID, document, user, status and driver-reported progress.
+- Display events from multiple printer queues concurrently without switching or replacing the manually selected queue.
+- Replace the coalescing WMI event watcher with a 100-millisecond `Win32_PrintJob` snapshot diff while Live events is explicitly enabled.
+- Emit separate creation, modification and deletion transitions for every detected job, including multiple jobs changed in the same snapshot.
+- Keep the existing live lease, visibility shutdown and 10-minute endpoint safety limit.
+
 ## 0.4.24
 
 - Monitor print activity across all queues on the endpoint while Live events is enabled.

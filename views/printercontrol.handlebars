@@ -92,6 +92,16 @@
         </div>
     </section>
 
+    <section id="activityPanel" class="panel" hidden>
+        <div class="panel-head"><h2>Live print activity — all printers</h2><span id="activityBadge" class="badge unknown">Stopped</span><span class="spacer"></span><span id="activityCount" class="muted"></span><button class="small" onclick="PrinterControl.clearActivity()">Clear activity</button></div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Time</th><th>Printer</th><th>ID</th><th>Document</th><th>User</th><th>Status transition</th><th>Driver progress</th></tr></thead>
+                <tbody id="activityRows"><tr><td colspan="7" class="empty">Start live events to monitor all printer queues.</td></tr></tbody>
+            </table>
+        </div>
+    </section>
+
     <section class="panel">
         <div class="panel-head"><h2 id="jobsTitle">Print jobs</h2><span id="jobsLiveBadge" class="badge unknown">Live events off</span><span class="spacer"></span><button id="jobsLiveToggle" class="small" disabled onclick="PrinterControl.toggleLiveEvents()">Start live events</button><button id="jobsRefresh" class="small" disabled onclick="PrinterControl.reloadJobs()">Refresh jobs</button></div>
         <div class="table-wrap">
@@ -124,6 +134,7 @@ var PrinterControl = (function () {
         clearQueue: 105000
     };
     var TEST_PAGE_JOB_RETRY_DELAYS_MS = [750, 1750];
+    var MAX_ACTIVITY_ROWS = 100;
     var localSharedInventory = { data: null, pending: false, pendingAt: 0, updatedAt: 0 };
     var state = {
         nodeid: new URLSearchParams(window.location.search).get("nodeid"),
@@ -162,6 +173,8 @@ var PrinterControl = (function () {
         testPageJobRetryIndex: 0,
         testPageJobRetryTimer: null,
         testPageEventPrinter: null,
+        activityHistory: [],
+        activityFingerprint: null,
         unloading: false
     };
 
@@ -281,6 +294,7 @@ var PrinterControl = (function () {
         state.liveSwitchInFlight = false;
         state.pendingTestPrinter = null;
         setLiveBadge("Live events off", "unknown");
+        stopActivityFeed();
         updateButtons();
     }
 
@@ -292,6 +306,7 @@ var PrinterControl = (function () {
         state.subscriptionActive = false;
         state.watcherReady = false;
         setLiveBadge("Starting live events...", "unknown");
+        startActivityFeed();
         updateButtons();
         if (!sendSubscription(true, state.selectedPrinter)) {
             clearLiveState();
@@ -312,6 +327,7 @@ var PrinterControl = (function () {
         state.liveSwitchInFlight = false;
         state.pendingTestPrinter = null;
         setLiveBadge("Live events off", "unknown");
+        stopActivityFeed();
         updateButtons();
         if (reason && silent !== true && !state.unloading) setMessage(reason);
         return shouldUnsubscribe;
@@ -339,6 +355,108 @@ var PrinterControl = (function () {
             window.clearTimeout(state.recentCompletedTimer);
             state.recentCompletedTimer = null;
         }
+    }
+
+    function renderActivity() {
+        var panel = document.getElementById("activityPanel");
+        var body = document.getElementById("activityRows");
+        panel.hidden = false;
+        body.textContent = "";
+        document.getElementById("activityCount").textContent =
+            state.activityHistory.length ? state.activityHistory.length + " transition(s)" : "";
+        if (!state.activityHistory.length) {
+            var empty = document.createElement("tr");
+            var emptyCell = textCell(empty, state.liveRequested ?
+                "Monitoring every printer queue on this endpoint..." :
+                "No print activity captured in this live session.");
+            emptyCell.colSpan = 7;
+            emptyCell.className = "empty";
+            body.appendChild(empty);
+            return;
+        }
+        state.activityHistory.forEach(function (entry) {
+            var row = document.createElement("tr");
+            textCell(row, entry.time);
+            textCell(row, entry.printerName);
+            textCell(row, entry.jobId);
+            textCell(row, entry.documentName);
+            textCell(row, entry.userName);
+            textCell(row, entry.status);
+            textCell(row, entry.progress);
+            body.appendChild(row);
+        });
+    }
+
+    function clearActivity() {
+        state.activityHistory = [];
+        state.activityFingerprint = null;
+        renderActivity();
+    }
+
+    function startActivityFeed() {
+        state.activityHistory = [];
+        state.activityFingerprint = null;
+        document.getElementById("activityPanel").hidden = false;
+        var badge = document.getElementById("activityBadge");
+        badge.textContent = "Monitoring";
+        badge.className = "badge ok";
+        renderActivity();
+    }
+
+    function stopActivityFeed() {
+        var badge = document.getElementById("activityBadge");
+        badge.textContent = "Stopped";
+        badge.className = "badge unknown";
+        if (!document.getElementById("activityPanel").hidden) renderActivity();
+    }
+
+    function recordActivity(event) {
+        var jobs = Array.isArray(event.jobs) ? event.jobs : [];
+        var target = null;
+        for (var i = 0; i < jobs.length; i++) {
+            var candidateId = getJobValue(jobs[i], ["id", "Id", "ID", "jobId", "JobId"], 0);
+            if (Number(candidateId) === Number(event.jobId)) {
+                target = jobs[i];
+                break;
+            }
+        }
+        if (!target && jobs.length === 1) target = jobs[0];
+        if (!target) {
+            target = {
+                id: event.jobId,
+                documentName: event.document,
+                userName: event.owner,
+                jobStatus: event.status,
+                totalPages: 0,
+                pagesPrinted: 0,
+                recentCompleted: String(event.eventType || "").indexOf("Deletion") >= 0
+            };
+        }
+        var pagesPrinted = Number(getJobValue(target, ["pagesPrinted", "PagesPrinted"], 0));
+        var totalPages = Number(getJobValue(target, ["totalPages", "TotalPages"], 0));
+        var rawStatus = getJobValue(target, ["jobStatus", "JobStatus", "status", "Status"], event.status || "");
+        var status = formatJobStatus(target, rawStatus, pagesPrinted, totalPages);
+        var eventName = String(event.eventType || "");
+        if (eventName.indexOf("Creation") >= 0 && !/queued|spooling|printing/i.test(status)) {
+            status = "Detected — " + status;
+        } else if (eventName.indexOf("Modification") >= 0 && status === "Queued") {
+            status = "Queue updated";
+        }
+        var entry = {
+            time: new Date(event.timestamp || Date.now()).toLocaleTimeString(),
+            printerName: String(event.printerName || ""),
+            jobId: getJobValue(target, ["id", "Id", "ID", "jobId", "JobId"], event.jobId || ""),
+            documentName: getJobValue(target, ["documentName", "DocumentName", "document", "Document"], event.document || ""),
+            userName: getJobValue(target, ["userName", "UserName", "user", "User"], event.owner || ""),
+            status: status,
+            progress: formatJobProgress(target, pagesPrinted, totalPages)
+        };
+        var fingerprint = [entry.printerName, entry.jobId, eventName, entry.status, entry.progress].join("|");
+        if (fingerprint === state.activityFingerprint) return;
+        state.activityFingerprint = fingerprint;
+        state.activityHistory.unshift(entry);
+        if (state.activityHistory.length > MAX_ACTIVITY_ROWS) state.activityHistory.length = MAX_ACTIVITY_ROWS;
+        renderActivity();
     }
 
     function switchLiveEventsForTest(printerName) {
@@ -957,13 +1075,9 @@ var PrinterControl = (function () {
             if (message.subscriptionId !== state.subscriptionId || !state.selectedPrinter || !message.event) return;
             var eventPrinter = String(message.event.printerName || "");
             if (!eventPrinter) return;
+            recordActivity(message.event);
             if (eventPrinter.toLowerCase() !== String(state.selectedPrinter).toLowerCase()) {
-                clearPendingJobEvents();
-                stopTestPageJobDiscovery();
-                state.selectedPrinter = eventPrinter;
-                state.subscriptionPrinter = eventPrinter;
-                document.getElementById("jobsTitle").textContent = "Print jobs — " + eventPrinter;
-                updateButtons();
+                return;
             }
             if (state.activeOperation === "testPage" ||
                     (state.testPageJobPrinter &&
@@ -1190,6 +1304,7 @@ var PrinterControl = (function () {
         toggleLiveEvents: toggleLiveEvents,
         startLiveEvents: startLiveEvents,
         stopLiveEvents: stopLiveEvents,
+        clearActivity: clearActivity,
         checkLiveVisibility: function () { if (state.liveRequested && !isPluginVisible()) stopLiveEvents("Live monitoring stopped because the Printers tab is no longer visible.", false); },
         unsubscribeJobs: unsubscribeJobs
     };
