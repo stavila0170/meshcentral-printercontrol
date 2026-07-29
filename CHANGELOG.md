@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.17
+
+- Queue inventory and print-job reads per device when another endpoint operation is still finishing instead of returning a blocking error.
+- Dispatch the next queued read after success, failure, agent-send failure or the 135-second server timeout.
+- Show an explicit waiting state in the UI while a read is queued.
+- Keep destructive printer and Spooler changes non-queued so they are never executed later than the user's action.
+- Track the active PowerShell child and automatically terminate and clear an endpoint lock that outlives the normal operation timeout.
+
 ## 0.4.16
 
 - Preserve the latest inventory and its in-flight state in the MeshCentral parent window, keyed by node id.

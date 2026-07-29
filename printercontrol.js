@@ -17,6 +17,7 @@ module.exports.printercontrol = function (parent) {
     obj.VIEWS = __dirname + "/views/";
     obj.pending = Object.create(null);
     obj.activeOperations = Object.create(null);
+    obj.readQueues = Object.create(null);
     obj.jobSubscriptions = Object.create(null);
     obj.watcherLeaseRenewed = Object.create(null);
     obj.watcherState = Object.create(null);
@@ -32,6 +33,8 @@ module.exports.printercontrol = function (parent) {
     var MAX_SUBSCRIPTIONS_TOTAL = 128;
     var MAX_PENDING_REQUESTS = 256;
     var MAX_COALESCED_READ_WAITERS = 16;
+    var MAX_QUEUED_READS_PER_NODE = 8;
+    var QUEUED_READ_TTL_MS = 150000;
     var OPERATION_TIMEOUT_MS = 135000;
 
     var ACTION_PERMISSIONS = {
@@ -88,7 +91,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.16 started with persistent per-device inventory state");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.17 started with queued endpoint reads and recoverable locks");
     };
 
     obj.server_shutdown = function () {
@@ -102,6 +105,7 @@ module.exports.printercontrol = function (parent) {
         }
         obj.pending = Object.create(null);
         obj.activeOperations = Object.create(null);
+        obj.readQueues = Object.create(null);
         obj.jobSubscriptions = Object.create(null);
         obj.watcherLeaseRenewed = Object.create(null);
         obj.watcherState = Object.create(null);
@@ -599,6 +603,108 @@ module.exports.printercontrol = function (parent) {
         }
     }
 
+    function isReadOperation(operation) {
+        return operation === "inventory" || operation === "jobs";
+    }
+
+    function readQueue(nodeid, create) {
+        var queue = obj.readQueues[nodeid];
+        if (!queue && create) {
+            queue = [];
+            obj.readQueues[nodeid] = queue;
+        }
+        return queue;
+    }
+
+    function startPendingOperation(item) {
+        if (!item || !isValidNodeId(item.nodeid)) return false;
+        if (!agentIsOnline(item.nodeid)) {
+            notifyPendingOperation(item, null, false, "MeshAgent is offline", null);
+            return false;
+        }
+        if (countOwn(obj.pending) >= MAX_PENDING_REQUESTS) {
+            notifyPendingOperation(item, null, false, "The printer operation queue is temporarily full", null);
+            return false;
+        }
+
+        var requestId = crypto.randomBytes(18).toString("hex");
+        obj.activeOperations[item.nodeid] = requestId;
+        var timer = setTimeout(function () {
+            var pending = obj.pending[requestId];
+            if (!pending) return;
+            delete obj.pending[requestId];
+            releaseActiveOperation(pending.nodeid, requestId);
+            notifyPendingOperation(pending, requestId, false, "Printer operation timed out", null);
+            dispatchNextRead(pending.nodeid);
+        }, OPERATION_TIMEOUT_MS);
+
+        obj.pending[requestId] = {
+            nodeid: item.nodeid,
+            operation: item.operation,
+            clientRequestId: item.clientRequestId || null,
+            params: item.params || {},
+            waiters: Array.isArray(item.waiters) ? item.waiters : [],
+            session: item.session,
+            userid: item.userid,
+            startedAt: Date.now(),
+            timer: timer
+        };
+
+        var sent = sendToAgent(item.nodeid, {
+            action: "plugin",
+            plugin: "printercontrol",
+            pluginaction: item.operation,
+            params: item.params || {},
+            requestId: requestId
+        });
+        if (!sent) {
+            clearTimeout(timer);
+            var failedPending = obj.pending[requestId];
+            delete obj.pending[requestId];
+            releaseActiveOperation(item.nodeid, requestId);
+            notifyPendingOperation(failedPending, requestId, false, "Unable to contact MeshAgent", null);
+            dispatchNextRead(item.nodeid);
+            return false;
+        }
+        return true;
+    }
+
+    function queueReadOperation(item, activeOperation) {
+        var queue = readQueue(item.nodeid, true);
+        if (queue.length >= MAX_QUEUED_READS_PER_NODE) return false;
+        item.queuedAt = Date.now();
+        queue.push(item);
+        sendToSession(item.session, browserMessage("queued", {
+            nodeid: item.nodeid,
+            operation: item.operation,
+            clientRequestId: item.clientRequestId || null,
+            activeOperation: activeOperation || null
+        }));
+        return true;
+    }
+
+    function dispatchNextRead(nodeid) {
+        if (obj.activeOperations[nodeid]) return;
+        var queue = readQueue(nodeid, false);
+        if (!queue || queue.length === 0) {
+            delete obj.readQueues[nodeid];
+            return;
+        }
+        while (queue.length > 0) {
+            var next = queue.shift();
+            if (!next || (Date.now() - Number(next.queuedAt || 0)) > QUEUED_READ_TTL_MS) {
+                if (next) notifyPendingOperation(next, null, false, "Queued printer read expired", null);
+                continue;
+            }
+            if (queue.length === 0) delete obj.readQueues[nodeid];
+            if (!startPendingOperation(next)) {
+                setTimeout(function () { dispatchNextRead(nodeid); }, 0);
+            }
+            return;
+        }
+        delete obj.readQueues[nodeid];
+    }
+
     function removeSubscriptionsForSession(nodeid, session) {
         var bucket = subscriptionBucket(nodeid, false);
         if (!bucket) return;
@@ -1024,47 +1130,32 @@ module.exports.printercontrol = function (parent) {
                         obj.debug("plugin:printercontrol", "Coalesced duplicate " + operation + " request for " + command.nodeid);
                         return;
                     }
-                    fail(session, operation, "Another printer operation is already running for this device", null, clientRequestId);
+                    if (isReadOperation(operation)) {
+                        if (!queueReadOperation({
+                            nodeid: command.nodeid,
+                            operation: operation,
+                            clientRequestId: clientRequestId,
+                            params: command.params || {},
+                            waiters: [],
+                            session: session,
+                            userid: user._id
+                        }, activePending && activePending.operation)) {
+                            fail(session, operation, "Too many printer reads are already waiting for this device", null, clientRequestId);
+                        }
+                        return;
+                    }
+                    fail(session, operation, "A " + String((activePending && activePending.operation) || "printer") + " operation is already running for this device", null, clientRequestId);
                     return;
                 }
-                if (countOwn(obj.pending) >= MAX_PENDING_REQUESTS) {
-                    fail(session, operation, "The printer operation queue is temporarily full", null, clientRequestId);
-                    return;
-                }
-                var requestId = crypto.randomBytes(18).toString("hex");
-                obj.activeOperations[command.nodeid] = requestId;
-                var timer = setTimeout(function () {
-                    var pending = obj.pending[requestId];
-                    if (!pending) return;
-                    delete obj.pending[requestId];
-                    releaseActiveOperation(pending.nodeid, requestId);
-                    notifyPendingOperation(pending, requestId, false, "Printer operation timed out", null);
-                }, OPERATION_TIMEOUT_MS);
-
-                obj.pending[requestId] = {
+                startPendingOperation({
                     nodeid: command.nodeid,
                     operation: operation,
                     clientRequestId: clientRequestId,
                     params: command.params || {},
                     waiters: [],
                     session: session,
-                    userid: user._id,
-                    timer: timer
-                };
-
-                var sent = sendToAgent(command.nodeid, {
-                    action: "plugin",
-                    plugin: "printercontrol",
-                    pluginaction: operation,
-                    params: command.params || {},
-                    requestId: requestId
+                    userid: user._id
                 });
-                if (!sent) {
-                    clearTimeout(timer);
-                    delete obj.pending[requestId];
-                    releaseActiveOperation(command.nodeid, requestId);
-                    fail(session, operation, "Unable to contact MeshAgent", requestId, clientRequestId);
-                }
             }).catch(function (permissionError) {
                 fail(session, operation, permissionError.message || permissionError);
             });
@@ -1129,6 +1220,7 @@ module.exports.printercontrol = function (parent) {
             command.error || "Operation failed",
             command.data
         );
+        dispatchNextRead(pending.nodeid);
     }
 
     obj.serveraction = function (command, myparent, grandparent) {

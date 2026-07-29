@@ -722,6 +722,14 @@ var PrinterControl = (function () {
             return;
         }
 
+        if (message.type === "queued") {
+            if (message.clientRequestId && message.clientRequestId !== state.activeClientRequestId) return;
+            var waitingFor = message.activeOperation ? "Waiting for the current " + message.activeOperation + " operation to finish..." : "Printer read queued...";
+            setMessage(waitingFor);
+            if (message.operation === "jobs") showJobsPlaceholder(waitingFor, false);
+            return;
+        }
+
         if (message.type !== "result") return;
 
         if (message.clientRequestId && state.activeClientRequestId && message.clientRequestId !== state.activeClientRequestId) return;
