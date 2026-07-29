@@ -1,6 +1,6 @@
-# Mesh Printer Control 0.4.15
+# Mesh Printer Control 0.4.13
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.15 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.13 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
 
 ## Included operations
 
@@ -16,9 +16,9 @@ The browser cannot submit PowerShell. The server and endpoint accept only the fi
 
 ### Refresh and live print-job behavior
 
-Version 0.4.15 performs no printer-inventory or print-job polling. The plugin iframe is lazy-loaded only after the **Printers** device tab is opened, so viewing a device or starting Desktop does not launch hidden printer work. Inventory is then loaded once, and later updated only through the manual **Refresh** button or once after an operation that changes printer state. Duplicate iframe initialization requests share the same endpoint read instead of starting or rejecting a second PowerShell operation.
+Version 0.4.13 performs no printer-inventory or print-job polling. The plugin iframe is lazy-loaded only after the **Printers** device tab is opened, so viewing a device or starting Desktop does not launch hidden printer work. Inventory is then loaded once, and later updated only through the manual **Refresh** button or once after an operation that changes printer state.
 
-Pressing **Jobs** loads the selected queue once and does not start background monitoring. Live monitoring is explicitly opt-in through **Start live events**. While enabled, the page sends a lightweight 15-second lease heartbeat; printer inventory and jobs are not polled. Monitoring stops immediately when another MeshCentral device tab is selected, and also stops when the heartbeat is lost, when the browser/server connection disappears, or after a 10-minute safety limit. MeshAgent also enforces an independent endpoint lease and the PowerShell watcher has its own 10-minute deadline, so an orphaned process cannot remain active indefinitely. Normal printer operations run asynchronously, have a 120-second endpoint timeout and are serialized to one PowerShell process per agent. **Refresh jobs** remains available as a manual fallback.
+Pressing **Jobs** loads the selected queue once and does not start background monitoring. Live monitoring is explicitly opt-in through **Start live events**. While enabled, the page sends a lightweight 15-second lease heartbeat; printer inventory and jobs are not polled. Monitoring stops immediately when another MeshCentral device tab is selected, and also stops when the heartbeat is lost, when the browser/server connection disappears, or after a 10-minute safety limit. MeshAgent also enforces an independent endpoint lease and the PowerShell watcher has its own 10-minute deadline, so an orphaned process cannot remain active indefinitely. The first 0.4.13 agent-side operation also performs a narrowly targeted cleanup of legacy watcher processes created by earlier live-monitoring builds. **Refresh jobs** remains available as a manual fallback.
 
 ## Requirements
 
@@ -52,7 +52,7 @@ Enable the plugin in the `settings` section of `meshcentral-data/config.json`:
 
 Retain existing entries in `plugins.list`. Restart MeshCentral after copying the plugin. On Windows-hosted MeshCentral, `Install-MeshCentralPlugin.ps1` performs the copy, verifies every installed file and optionally restarts the service.
 
-For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.15` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
+For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.2` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
 
 ```powershell
 docker exec meshcentral rm -rf /opt/meshcentral/meshcentral-data/plugins/printercontrol
@@ -75,14 +75,14 @@ https://github.com/stavila0170/meshcentral-printercontrol
 Place the contents of `plugin\printercontrol` in the repository's `printercontrol` directory, commit and push to the `main` branch. Confirm that this URL returns only JSON, without a GitHub HTML page:
 
 ```text
-https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/config.json
+https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/config.json
 ```
 
 Use that raw URL when adding the plugin to MeshCentral. The GitHub archive referenced by `downloadUrl` must retain the `printercontrol` directory at repository root.
 
 ## Upgrade from 0.3.x
 
-Install 0.4.15 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
+Install 0.4.13 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
 
 ```powershell
 Stop-Service MeshPrinterControl -Force -ErrorAction SilentlyContinue
@@ -90,7 +90,7 @@ sc.exe delete MeshPrinterControl
 Remove-Item "$env:ProgramData\MeshPrinterControl" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-Version 0.4.15 does not recreate this directory.
+Version 0.4.13 does not recreate this directory.
 
 ## Security design
 

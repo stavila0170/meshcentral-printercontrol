@@ -9,7 +9,7 @@
 "use strict";
 
 var mesh;
-var SCRIPT_VERSION = "0.4.15";
+var SCRIPT_VERSION = "0.4.13";
 var SCRIPT_GZIP_BASE64 = "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";
 var ALLOWED_ACTIONS = {
     inventory: true,
@@ -33,16 +33,11 @@ var ALLOWED_ACTIONS = {
 var jobWatcherProcess = null;
 var jobWatcherLeaseTimer = null;
 var jobWatcherHardTimer = null;
-var jobWatcherStartedAt = 0;
-var activePrinterOperation = null;
+var legacyWatcherCleanupDone = false;
 var DEFAULT_WATCHER_LEASE_MS = 55000;
 var MIN_WATCHER_LEASE_MS = 15000;
 var MAX_WATCHER_LEASE_MS = 120000;
 var WATCHER_HARD_LIMIT_MS = 600000;
-var NORMAL_OPERATION_TIMEOUT_MS = 120000;
-var MAX_PROCESS_OUTPUT_CHARS = 1048576;
-var MAX_PROCESS_ERROR_CHARS = 16384;
-var WATCHER_MARKER = "MESH_PRINTERCONTROL_WATCHER_0415";
 
 
 function own(object, key) {
@@ -175,6 +170,39 @@ function findPowerShell() {
     throw new Error("Windows PowerShell 5.1 was not found");
 }
 
+function captureProcess(executable, argv, stdinText) {
+    var callbackError = null;
+    var callbackStderr = "";
+    var child = require("child_process").execFile(
+        executable,
+        argv,
+        { cwd: process.env.TEMP || "C:\\Windows\\Temp" },
+        function (err, out, errout) {
+            callbackError = err;
+            callbackStderr = errout || "";
+        }
+    );
+    child.stdout.str = "";
+    child.stdout.on("data", function (chunk) { this.str += chunk.toString(); });
+    if (child.stderr) {
+        child.stderr.str = "";
+        child.stderr.on("data", function (chunk) { this.str += chunk.toString(); });
+    }
+    // MeshAgent's Windows command-line builder can corrupt arguments that are
+    // longer than roughly 4 KiB. Send the generated PowerShell program through
+    // standard input instead of placing it in the -Command argument.
+    if (stdinText != null && child.stdin) {
+        child.stdin.write(String(stdinText));
+        child.stdin.write("\r\nexit\r\n");
+    }
+    child.waitExit();
+    return {
+        stdout: child.stdout.str || "",
+        stderr: child.stderr ? (child.stderr.str || "") : callbackStderr,
+        error: callbackError
+    };
+}
+
 function parsePowerShellResult(stdout) {
     var text = String(stdout || "").trim();
     if (!text) throw new Error("PowerShell returned no data");
@@ -191,13 +219,12 @@ function parsePowerShellResult(stdout) {
     throw new Error("PowerShell returned invalid JSON");
 }
 
-function runPowerShell(operation, params, callback) {
+function runPowerShell(operation, params) {
     var powershellPath;
     try {
         powershellPath = findPowerShell();
     } catch (ex) {
-        callback({ success: false, error: "Unable to prepare printer operations: " + ex });
-        return;
+        return { success: false, error: "Unable to prepare printer operations: " + ex };
     }
 
     var payloadBase64 = Buffer.from(JSON.stringify(params)).toString("base64");
@@ -205,104 +232,47 @@ function runPowerShell(operation, params, callback) {
     try {
         inMemoryCommand = buildInMemoryCommand(operation, payloadBase64);
     } catch (commandError) {
-        callback({ success: false, error: "Unable to prepare the in-memory PowerShell command: " + commandError });
-        return;
+        return { success: false, error: "Unable to prepare the in-memory PowerShell command: " + commandError };
     }
-
-    var child;
+    var result;
     try {
-        child = require("child_process").execFile(
-            powershellPath,
-            [
-                "powershell.exe",
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy", "Bypass",
-                "-Command", "-"
-            ],
-            { cwd: process.env.TEMP || "C:\\Windows\\Temp" }
-        );
+        result = captureProcess(powershellPath, [
+            "powershell.exe",
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy", "Bypass",
+            "-Command", "-"
+        ], inMemoryCommand);
     } catch (ex2) {
-        callback({ success: false, error: "Unable to start Windows PowerShell: " + ex2 });
-        return;
+        return { success: false, error: "Unable to start Windows PowerShell: " + ex2 };
     }
 
-    var stdout = "";
-    var stderr = "";
-    var completed = false;
-    var timedOut = false;
-    var outputExceeded = false;
-    var timer = null;
-
-    function finish(result) {
-        if (completed) return;
-        completed = true;
-        if (timer != null) {
-            clearTimeout(timer);
-            timer = null;
-        }
-        callback(result);
-    }
-
-    if (child.stdout) {
-        child.stdout.on("data", function (chunk) {
-            if (completed) return;
-            stdout += String(chunk || "");
-            if (stdout.length > MAX_PROCESS_OUTPUT_CHARS) {
-                outputExceeded = true;
-                try { child.kill(); } catch (ignoreKill) { }
-                finish({ success: false, error: "PowerShell response exceeded 1 MiB" });
-            }
-        });
-    }
-    if (child.stderr) {
-        child.stderr.on("data", function (chunk) {
-            if (stderr.length < MAX_PROCESS_ERROR_CHARS) {
-                stderr = (stderr + String(chunk || "")).substring(0, MAX_PROCESS_ERROR_CHARS);
-            }
-        });
-    }
-    child.on("error", function (error) {
-        finish({ success: false, error: "Windows PowerShell process failed: " + error });
-    });
-    child.on("exit", function (code) {
-        if (completed) return;
-        if (timedOut) {
-            finish({ success: false, error: "Printer operation exceeded the 120-second endpoint limit" });
-            return;
-        }
-        if (outputExceeded) {
-            finish({ success: false, error: "PowerShell response exceeded 1 MiB" });
-            return;
-        }
-        try {
-            finish(parsePowerShellResult(stdout));
-        } catch (parseError) {
-            var detail = String(stderr || parseError || ("PowerShell exited with code " + code)).substring(0, 1200);
-            finish({ success: false, error: detail });
-        }
-    });
-
-    timer = setTimeout(function () {
-        if (completed) return;
-        timedOut = true;
-        try { child.kill(); } catch (ignoreTimeoutKill) { }
-        finish({ success: false, error: "Printer operation exceeded the 120-second endpoint limit" });
-    }, NORMAL_OPERATION_TIMEOUT_MS);
-
-    // MeshAgent's Windows command-line builder can corrupt arguments longer
-    // than roughly 4 KiB. Transfer the program through stdin and close it after
-    // the complete script has been written. No endpoint file is created.
     try {
-        if (!child.stdin) throw new Error("PowerShell standard input is unavailable");
-        child.stdin.write(String(inMemoryCommand));
-        child.stdin.write("\r\nexit\r\n");
-        if (typeof child.stdin.end === "function") child.stdin.end();
-    } catch (writeError) {
-        try { child.kill(); } catch (ignoreWriteKill) { }
-        finish({ success: false, error: "Unable to initialize Windows PowerShell: " + writeError });
+        return parsePowerShellResult(result.stdout);
+    } catch (parseError) {
+        var detail = String(result.stderr || result.error || parseError).substring(0, 1200);
+        return { success: false, error: detail };
     }
+}
+
+function cleanupLegacyWatcherProcesses() {
+    if (legacyWatcherCleanupDone === true || process.platform !== "win32") return;
+    legacyWatcherCleanupDone = true;
+    var powershellPath;
+    try { powershellPath = findPowerShell(); } catch (ignoreFind) { return; }
+    var meshPid = parseInt(process.pid, 10);
+    if (!isFinite(meshPid) || meshPid < 1) return;
+    var script = "$meshPid=" + meshPid + ";" +
+        "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue|" +
+        "Where-Object{$_.ParentProcessId -eq $meshPid -and $_.CommandLine -like '*ReadToEnd*' -and $_.CommandLine -like '*ScriptBlock*'}|" +
+        "ForEach-Object{Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue}";
+    try {
+        captureProcess(powershellPath, [
+            "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive",
+            "-ExecutionPolicy", "Bypass", "-Command", "-"
+        ], script);
+    } catch (ignoreCleanup) { }
 }
 
 function normalizeWatcherLeaseMs(params) {
@@ -344,7 +314,6 @@ function buildJobWatcherScript() {
         "$watcher.Options.Timeout=[TimeSpan]::FromSeconds(2)",
         "$watcher.Start()",
         "$deadline=(Get-Date).AddMinutes(10)",
-        "$lastSnapshot=@{}",
         "[Console]::Out.WriteLine('{\"control\":\"ready\"}')",
         "[Console]::Out.Flush()",
         "try {",
@@ -358,9 +327,6 @@ function buildJobWatcherScript() {
         "    $printerName=$name",
         "    $jobId=0",
         "    if ($name -match '^(.*),\\s*(\\d+)$') { $printerName=$Matches[1]; $jobId=[int]$Matches[2] }",
-        "    $nowUtc=[DateTime]::UtcNow",
-        "    if ($eventClass -ne '__InstanceDeletionEvent' -and $lastSnapshot.ContainsKey($printerName) -and (($nowUtc-$lastSnapshot[$printerName]).TotalMilliseconds -lt 300)) { continue }",
-        "    $lastSnapshot[$printerName]=$nowUtc",
         "    $jobs=@()",
         "    try {",
         "      $jobs=@(Get-PrintJob -PrinterName $printerName -ErrorAction Stop | Select-Object -First 250 | ForEach-Object {",
@@ -423,14 +389,6 @@ function sendWatcherStatus(success, error) {
 
 function sendJobWatcherEvent(event) {
     if (!mesh || !event || typeof event !== "object") return;
-    try {
-        if (JSON.stringify(event).length > 262144) {
-            if (Array.isArray(event.jobs)) event.jobs = event.jobs.slice(0, 50);
-            event.truncated = true;
-        }
-    } catch (ignoreSize) {
-        return;
-    }
     mesh.SendCommand({
         action: "plugin",
         plugin: "printercontrol",
@@ -476,8 +434,8 @@ function consumeWatcherOutput(child, chunk) {
 function startJobWatcher(requestId, params) {
     if (jobWatcherProcess != null) {
         armWatcherLease(params);
-        var remainingMs = Math.max(0, WATCHER_HARD_LIMIT_MS - (Date.now() - jobWatcherStartedAt));
-        sendResult(requestId, "watchJobsStart", { success: true, data: { watching: true, existing: true, remainingMs: remainingMs } });
+        armWatcherHardLimit();
+        sendResult(requestId, "watchJobsStart", { success: true, data: { watching: true, existing: true } });
         return;
     }
 
@@ -502,7 +460,7 @@ function startJobWatcher(requestId, params) {
                 // Read the complete watcher program from stdin first, then execute it
                 // as a ScriptBlock. This lets us close stdin without terminating
                 // PowerShell's long-running watcher process.
-                "-Command", "$pcMarker='" + WATCHER_MARKER + "';$pcScript=[Console]::In.ReadToEnd(); & ([ScriptBlock]::Create($pcScript))"
+                "-Command", "$pcScript=[Console]::In.ReadToEnd(); & ([ScriptBlock]::Create($pcScript))"
             ],
             { cwd: process.env.TEMP || "C:\\Windows\\Temp" }
         );
@@ -512,7 +470,6 @@ function startJobWatcher(requestId, params) {
     }
 
     jobWatcherProcess = child;
-    jobWatcherStartedAt = Date.now();
     armWatcherLease(params);
     armWatcherHardLimit();
     child._printerControlBuffer = "";
@@ -526,7 +483,6 @@ function startJobWatcher(requestId, params) {
         replyWatcherStart(child, { success: false, error: "PowerShell did not confirm that the print-job watcher started" });
         try { child.kill(); } catch (ignoreKill) { }
         if (jobWatcherProcess === child) jobWatcherProcess = null;
-        jobWatcherStartedAt = 0;
         clearWatcherSafetyTimers();
     }, 15000);
 
@@ -537,21 +493,12 @@ function startJobWatcher(requestId, params) {
             if (this.str.length < 8192) this.str += chunk.toString();
         });
     }
-    child.on("error", function (error) {
-        child._printerControlStopping = true;
-        replyWatcherStart(child, { success: false, error: "Print-job watcher process failed: " + error });
-        if (jobWatcherProcess === child) jobWatcherProcess = null;
-        jobWatcherStartedAt = 0;
-        clearWatcherSafetyTimers();
-        try { child.kill(); } catch (ignoreErrorKill) { }
-    });
     child.on("exit", function (code) {
         var wasStopping = child._printerControlStopping === true;
         var detail = "";
         if (child.stderr && child.stderr.str) detail = child.stderr.str.substring(0, 1200);
         if (jobWatcherProcess === child) {
             jobWatcherProcess = null;
-            jobWatcherStartedAt = 0;
             clearWatcherSafetyTimers();
         }
         child._printerControlBuffer = "";
@@ -577,7 +524,6 @@ function startJobWatcher(requestId, params) {
         replyWatcherStart(child, { success: false, error: "Unable to initialize print-job watcher: " + writeError });
         try { child.kill(); } catch (ignoreKill) { }
         if (jobWatcherProcess === child) jobWatcherProcess = null;
-        jobWatcherStartedAt = 0;
         clearWatcherSafetyTimers();
         return;
     }
@@ -592,7 +538,6 @@ function stopJobWatcher(requestId, reason, notifyStatus) {
     }
     child._printerControlStopping = true;
     if (jobWatcherProcess === child) jobWatcherProcess = null;
-    jobWatcherStartedAt = 0;
     child._printerControlBuffer = "";
     if (child._printerControlReadyTimer != null) {
         clearTimeout(child._printerControlReadyTimer);
@@ -621,7 +566,6 @@ function sendResult(requestId, operation, result) {
         pluginaction: "operationResult",
         requestId: requestId,
         operation: operation,
-        moduleVersion: SCRIPT_VERSION,
         success: result && result.success === true,
         error: result && result.success === true ? null : String((result && result.error) || "Printer operation failed"),
         data: result && result.data != null ? result.data : null
@@ -634,6 +578,8 @@ function consoleaction(args, rights, sessionid, parent) {
         if (args && args.requestId) sendResult(args.requestId, args.pluginaction, { success: false, error: "Windows is required" });
         return;
     }
+
+    cleanupLegacyWatcherProcesses();
 
     var operation = args.pluginaction;
     if (!ALLOWED_ACTIONS[operation]) return;
@@ -661,19 +607,7 @@ function consoleaction(args, rights, sessionid, parent) {
         sendResult(args.requestId, operation, { success: false, error: String(validationError.message || validationError) });
         return;
     }
-    if (activePrinterOperation != null) {
-        sendResult(args.requestId, operation, {
-            success: false,
-            error: "Another printer operation is already running on this endpoint"
-        });
-        return;
-    }
-
-    activePrinterOperation = args.requestId;
-    runPowerShell(operation, params, function (result) {
-        if (activePrinterOperation === args.requestId) activePrinterOperation = null;
-        sendResult(args.requestId, operation, result);
-    });
+    sendResult(args.requestId, operation, runPowerShell(operation, params));
 }
 
 module.exports = { consoleaction: consoleaction };
