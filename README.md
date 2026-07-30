@@ -1,6 +1,6 @@
-# Mesh Printer Control 0.4.32
+# Mesh Printer Control 0.4.33
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.32 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.33 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
 
 ## Included operations
 
@@ -16,7 +16,7 @@ The browser cannot submit PowerShell. The server and endpoint accept only the fi
 
 ### Refresh and live print-job behavior
 
-Version 0.4.32 displays two distinct sections:
+Version 0.4.33 displays two distinct sections:
 
 - **Active physical printers** — only real printer queues that Windows currently reports as available. Remote Desktop redirected queues and common virtual PDF, XPS, Fax and OneNote printers are excluded. The existing endpoint watcher sends a lightweight printer-state snapshot approximately every two seconds, so an offline printer disappears and an available printer reappears without running a full inventory refresh.
 - **Print jobs — all printers** — the only print-job table. It aggregates current jobs from every active physical printer and keeps Pause, Resume and Cancel bound to the printer named in each row.
@@ -57,7 +57,7 @@ Enable the plugin in the `settings` section of `meshcentral-data/config.json`:
 
 Retain existing entries in `plugins.list`. Restart MeshCentral after copying the plugin. On Windows-hosted MeshCentral, `Install-MeshCentralPlugin.ps1` performs the copy, verifies every installed file and optionally restarts the service.
 
-For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.32` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
+For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.33` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
 
 ```powershell
 docker exec meshcentral rm -rf /opt/meshcentral/meshcentral-data/plugins/printercontrol
@@ -95,7 +95,7 @@ sc.exe delete MeshPrinterControl
 Remove-Item "$env:ProgramData\MeshPrinterControl" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-Version 0.4.32 does not recreate this directory.
+Version 0.4.33 does not recreate this directory.
 
 ## Security design
 
@@ -135,6 +135,6 @@ node tests\test_agent_only.js
 ```
 
 
-## Active physical printers and all-printers live queue (0.4.32)
+## Active physical printers and active all-printers queue (0.4.33)
 
 The browser displays one Print jobs table. It receives live queue events from every printer on the endpoint and includes the printer name in each row.

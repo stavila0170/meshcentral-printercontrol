@@ -399,44 +399,35 @@ var PrinterControl = (function () {
         }
     }
 
+    function isActiveQueueJob(job) {
+        if (!job || typeof job !== "object") return false;
+        if (job.recentCompleted === true || job.physicalPending === true) return false;
+        var status = String(getJobValue(job, ["jobStatus", "JobStatus", "status", "Status"], "")).toLowerCase();
+        return !/(^|\W)(printed|completed|complete|deleted|deleting)(\W|$)/i.test(status);
+    }
+
     function renderActivity() {
         var body = document.getElementById("jobRows");
         if (!body) return;
         body.textContent = "";
         var active = [];
-        var activeKeys = {};
         for (var key in state.liveJobsByPrinter) {
             if (!Object.prototype.hasOwnProperty.call(state.liveJobsByPrinter, key)) continue;
             var bucket = state.liveJobsByPrinter[key];
             if (!bucket || !Array.isArray(bucket.jobs) || !isAllowedLivePrinter(bucket.printerName)) continue;
             for (var i = 0; i < bucket.jobs.length; i++) {
-                var identity = liveJobIdentity(bucket.printerName, bucket.jobs[i]);
-                activeKeys[identity] = true;
-                active.push({ printerName: bucket.printerName, job: bucket.jobs[i], recent: false });
+                if (!isActiveQueueJob(bucket.jobs[i])) continue;
+                active.push({ printerName: bucket.printerName, job: bucket.jobs[i] });
             }
         }
-        var recentCount = 0;
-        for (var recentKey in state.recentLiveJobs) {
-            if (!Object.prototype.hasOwnProperty.call(state.recentLiveJobs, recentKey) || activeKeys[recentKey]) continue;
-            var recentEntry = state.recentLiveJobs[recentKey];
-            if (!recentEntry) continue;
-            active.push({ printerName: recentEntry.printerName, job: recentEntry.job, recent: true });
-            recentCount++;
-        }
         active.sort(function (a, b) {
-            if (a.recent !== b.recent) return a.recent ? 1 : -1;
             var printerCompare = String(a.printerName).localeCompare(String(b.printerName));
             if (printerCompare !== 0) return printerCompare;
             return Number(getJobValue(a.job, ["id", "Id", "ID"], 0)) -
                 Number(getJobValue(b.job, ["id", "Id", "ID"], 0));
         });
-        var activeCount = active.length - recentCount;
         var count = document.getElementById("jobCount");
-        if (count) {
-            count.textContent = recentCount ?
-                activeCount + " active, " + recentCount + " recently sent" :
-                activeCount + " active job(s)";
-        }
+        if (count) count.textContent = active.length + " active job(s)";
         if (!active.length) {
             var empty = document.createElement("tr");
             var emptyCell = textCell(empty, state.liveRequested ?
@@ -463,13 +454,7 @@ var PrinterControl = (function () {
             textCell(row, getJobValue(job, ["size", "Size", "jobSize", "JobSize"], ""));
             var actions = document.createElement("td");
             actions.className = "actions";
-            if (job && job.recentCompleted === true) {
-                actions.textContent = "Sent recently";
-                actions.className += " muted";
-            } else if (job && job.physicalPending === true) {
-                actions.textContent = "Monitoring device";
-                actions.className += " muted";
-            } else if (Number(jobId) > 0 && String(entry.printerName || "").toLowerCase() !== "windows print spooler") {
+            if (Number(jobId) > 0) {
                 actions.appendChild(button("Pause", "manage_jobs", function () { jobActionForPrinter("pauseJob", entry.printerName, Number(jobId)); }));
                 actions.appendChild(button("Resume", "manage_jobs", function () { jobActionForPrinter("resumeJob", entry.printerName, Number(jobId)); }));
                 actions.appendChild(button("Cancel", "manage_jobs", function () { jobActionForPrinter("cancelJob", entry.printerName, Number(jobId)); }, true));
@@ -533,30 +518,21 @@ var PrinterControl = (function () {
             return;
         }
         if (!event || !isAllowedLivePrinter(event.printerName)) return;
-        applyLivePrinterStatus(event);
-        var jobs = Array.isArray(event.jobs) ? event.jobs : [];
-        var active = [];
-        for (var i = 0; i < jobs.length; i++) {
-            if (!jobs[i]) continue;
-            var identity = liveJobIdentity(event.printerName, jobs[i]);
-            if (jobs[i].recentCompleted === true) {
-                rememberRecentlySent(event.printerName, jobs[i]);
-                continue;
-            }
-            if (state.recentLiveJobTimers[identity] != null) {
-                window.clearTimeout(state.recentLiveJobTimers[identity]);
-                delete state.recentLiveJobTimers[identity];
-            }
-            delete state.recentLiveJobs[identity];
-            active.push(jobs[i]);
-        }
+        var jobs = Array.isArray(event.jobs) ? event.jobs.filter(isActiveQueueJob) : [];
         var printerName = String(event.printerName || "");
         var key = printerName.toLowerCase();
-        if (active.length) {
-            state.liveJobsByPrinter[key] = { printerName: printerName, jobs: active };
+        if (jobs.length) {
+            state.liveJobsByPrinter[key] = { printerName: printerName, jobs: jobs };
         } else {
             delete state.liveJobsByPrinter[key];
         }
+        applyLivePrinterStatus({
+            eventType: event.eventType,
+            printerName: printerName,
+            status: event.status,
+            timestamp: event.timestamp,
+            jobs: jobs
+        });
         renderActivity();
     }
 
@@ -866,7 +842,7 @@ var PrinterControl = (function () {
         var preferredStatus = "";
         for (var j = 0; j < jobs.length; j++) {
             var job = jobs[j];
-            if (!job || job.recentCompleted === true) continue;
+            if (!isActiveQueueJob(job)) continue;
             activeJobs.push(job);
             var deviceState = canonicalLiveStatus(getJobValue(job, ["deviceState", "DeviceState"], ""));
             var jobState = canonicalLiveStatus(getJobValue(job, ["jobStatus", "JobStatus", "status", "Status"], ""));
@@ -882,7 +858,8 @@ var PrinterControl = (function () {
         var eventStatus = canonicalLiveStatus(event.status || "");
         if (activeJobs.length > 0) {
             printer.status = preferredStatus && preferredStatus !== "Idle" ? preferredStatus : "Printing";
-        } else if (eventType === "PhysicalPrintingCompletedEvent" || /DeletionEvent$/.test(eventType)) {
+        } else if (eventType === "PhysicalPrintingCompletedEvent" || /DeletionEvent$/.test(eventType) ||
+                   /printed|completed|complete|deleted|deleting/i.test(String(event.status || ""))) {
             printer.status = "Idle";
         } else if (eventStatus) {
             printer.status = eventStatus;
@@ -1075,7 +1052,7 @@ var PrinterControl = (function () {
         var jobs = normalizeJobs(data);
         var active = [];
         for (var i = 0; i < jobs.length; i++) {
-            if (!jobs[i] || jobs[i].recentCompleted === true) continue;
+            if (!isActiveQueueJob(jobs[i])) continue;
             active.push(jobs[i]);
         }
         if (printerName && isAllowedLivePrinter(printerName)) {
@@ -1411,7 +1388,25 @@ var PrinterControl = (function () {
             return;
         }
 
-        setMessage((message.operation || "Operation") + " completed.", "success");
+        if (message.operation === "clearQueue") {
+            clearPendingJobEvents();
+            clearRecentLiveJobs();
+            state.liveJobsByPrinter = {};
+            if (state.inventory && Array.isArray(state.inventory.printers)) {
+                for (var clearIndex = 0; clearIndex < state.inventory.printers.length; clearIndex++) {
+                    state.inventory.printers[clearIndex].jobCount = 0;
+                    state.inventory.printers[clearIndex].status = "Idle";
+                }
+                renderInventory(state.inventory, true);
+            } else {
+                renderActivity();
+            }
+            var clearedJobs = message.data && Number(message.data.removedJobs || 0);
+            var clearedFiles = message.data && Number(message.data.removedFiles || 0);
+            setMessage("Print queue cleared (" + clearedJobs + " job(s), " + clearedFiles + " spool file(s)).", "success");
+        } else {
+            setMessage((message.operation || "Operation") + " completed.", "success");
+        }
         if (message.operation === "cancelJob" || message.operation === "pauseJob" || message.operation === "resumeJob") {
             // The all-printers live watcher updates the row automatically.
         } else if (message.operation === "spoolerStop") {
@@ -1424,8 +1419,7 @@ var PrinterControl = (function () {
             setSpoolerBadge("Running");
             refresh(true, true);
         } else if (message.operation === "addTcpPrinter" || message.operation === "deletePrinter" ||
-                   message.operation === "removePort" || message.operation === "removeDriver" ||
-                   message.operation === "clearQueue") {
+                   message.operation === "removePort" || message.operation === "removeDriver") {
             refresh(false, true);
         }
     }

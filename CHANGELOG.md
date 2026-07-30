@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.33
+
+- Show only jobs that are currently active in the Windows Print Spooler.
+- Remove a row immediately when Windows reports `Printed`, `Completed`, `Deleted`, or removes it from `Win32_PrintJob`.
+- Remove the synthetic post-spool physical-completion holding period and the eight-second completed-row retention.
+- Make **Clear queue** remove all jobs and spool files, verify that no jobs remain, and clear the browser table immediately after success.
+- Keep the active physical-printer list and its job counts synchronized with the active queue only.
+
 ## 0.4.32
 
 - Restored a dedicated **Active physical printers** table above the single all-printers print-jobs table.
