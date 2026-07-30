@@ -107,7 +107,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.30 started with tab-bound automatic real-time printer status monitoring");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.32 started with live active physical-printer inventory and all-printer jobs");
     };
 
     obj.server_shutdown = function () {
@@ -1069,6 +1069,25 @@ module.exports.printercontrol = function (parent) {
                 });
             }
         }
+        var printers = [];
+        if (Array.isArray(event.printers)) {
+            for (var p = 0; p < event.printers.length && p < 128; p++) {
+                var printer = event.printers[p];
+                if (!printer || typeof printer !== "object" || Array.isArray(printer) || !validPrinterName(printer.name)) continue;
+                printers.push({
+                    name: printer.name.substring(0, 256),
+                    status: typeof printer.status === "string" ? printer.status.substring(0, 128) : "Ready",
+                    driverName: typeof printer.driverName === "string" ? printer.driverName.substring(0, 256) : "",
+                    portName: typeof printer.portName === "string" ? printer.portName.substring(0, 256) : "",
+                    shared: printer.shared === true,
+                    shareName: typeof printer.shareName === "string" ? printer.shareName.substring(0, 256) : "",
+                    default: printer.default === true,
+                    jobCount: typeof printer.jobCount === "number" ? printer.jobCount : parseInt(printer.jobCount, 10) || 0,
+                    active: printer.active !== false,
+                    real: printer.real !== false
+                });
+            }
+        }
         return {
             eventType: typeof event.eventType === "string" ? event.eventType.substring(0, 80) : "changed",
             printerName: event.printerName.substring(0, 256),
@@ -1077,7 +1096,8 @@ module.exports.printercontrol = function (parent) {
             owner: typeof event.owner === "string" ? event.owner.substring(0, 256) : "",
             status: typeof event.status === "string" ? event.status.substring(0, 128) : "",
             timestamp: typeof event.timestamp === "string" ? event.timestamp.substring(0, 64) : new Date().toISOString(),
-            jobs: jobs
+            jobs: jobs,
+            printers: printers
         };
     }
 

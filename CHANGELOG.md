@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.32
+
+- Restored a dedicated **Active physical printers** table above the single all-printers print-jobs table.
+- Exclude redirected, PDF, XPS, Fax, OneNote and other virtual queues, and hide printers reported offline or unavailable.
+- Publish a lightweight live printer snapshot from the already-running endpoint watcher approximately every two seconds.
+- Add or remove printer rows automatically as physical printers become active or offline, without requiring Refresh.
+- Keep only one **Print jobs — all printers** table and filter its live jobs to printers in the active physical-printer list.
+
 ## 0.4.31
 
 - Replaced the printer inventory, selected-printer queue and separate activity view with one visible **Print jobs — all printers** table.
