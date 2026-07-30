@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.31
+
+- Replace the multi-section printer-management interface with one **Print jobs — all printers** table.
+- Subscribe directly to all endpoint printer queues without requiring a selected printer or printer inventory.
+- Display simultaneous jobs from every printer in real time, including document, user, status, driver progress, size and submission time.
+- Keep pause, resume and cancel controls on each actionable queue job.
+- Keep monitoring active while the top-level **Printers** tab is selected and stop it only when another main device tab is opened.
+- Show recently handed-off jobs briefly so fast jobs do not disappear before they can be seen.
+
 ## 0.4.30
 
 - Keep real-time printer monitoring permanently enabled while the top-level **Printers** tab is selected.

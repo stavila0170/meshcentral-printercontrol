@@ -76,8 +76,8 @@ module.exports.printercontrol = function (parent) {
         }
         parent.registerPermissions("printercontrol", {
             can_view: {
-                title: "View printers",
-                desc: "View printers, ports, drivers and print jobs",
+                title: "View print jobs",
+                desc: "View real-time print jobs across all endpoint printers",
                 default: "denied"
             },
             manage_jobs: {
@@ -107,7 +107,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.30 started with tab-bound automatic real-time printer status monitoring");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.31 started with all-printer real-time print-job monitoring");
     };
 
     obj.server_shutdown = function () {
@@ -277,7 +277,7 @@ module.exports.printercontrol = function (parent) {
         if (osDescription && osDescription.indexOf("windows") < 0) return;
 
         pluginHandler.registerPluginTab({
-            tabTitle: "Printers",
+            tabTitle: "Print Jobs",
             tabId: "pluginPrinterControl"
         });
 
@@ -309,7 +309,7 @@ module.exports.printercontrol = function (parent) {
             // QA() appends through innerHTML and can recreate an existing iframe.
             // Replace the page explicitly so repeated device-refresh callbacks
             // cannot leave multiple placeholders or duplicate plugin frames.
-            page.innerHTML = '<div id="pluginPrinterControlPlaceholder" style="padding:18px;color:#777;text-align:center">Printer Control loads only when the Printers tab is opened.</div>';
+            page.innerHTML = '<div id="pluginPrinterControlPlaceholder" style="padding:18px;color:#777;text-align:center">Print Jobs loads only when the Print Jobs tab is opened.</div>';
         } else {
             var stalePlaceholder = document.getElementById("pluginPrinterControlPlaceholder");
             if (stalePlaceholder && stalePlaceholder.parentNode === page) stalePlaceholder.parentNode.removeChild(stalePlaceholder);
@@ -367,7 +367,7 @@ module.exports.printercontrol = function (parent) {
             currentIframe = document.createElement("iframe");
             currentIframe.id = "pluginIframePrinterControl";
             currentIframe.setAttribute("data-nodeid", currentNodeKey);
-            currentIframe.setAttribute("title", "Printer Control");
+            currentIframe.setAttribute("title", "Print Jobs");
             currentIframe.setAttribute("scrolling", "yes");
             currentIframe.setAttribute("frameBorder", "0");
             currentIframe.style.width = "100%";
@@ -458,8 +458,8 @@ module.exports.printercontrol = function (parent) {
             if (headers && printerHeader && headers.querySelectorAll("span").length === 1) {
                 var mainTab = document.getElementById("MainDevPlugins");
                 if (mainTab) {
-                    mainTab.textContent = "Printers";
-                    mainTab.setAttribute("title", "Printers");
+                    mainTab.textContent = "Print Jobs";
+                    mainTab.setAttribute("title", "Print Jobs");
                 }
 
                 var deviceName = document.getElementById("p19deviceName");
@@ -468,7 +468,7 @@ module.exports.printercontrol = function (parent) {
                     for (var i = 0; i < heading.childNodes.length; i++) {
                         var child = heading.childNodes[i];
                         if (child.nodeType === 3 && child.nodeValue.indexOf("Plugins") >= 0) {
-                            child.nodeValue = child.nodeValue.replace("Plugins", "Printers");
+                            child.nodeValue = child.nodeValue.replace("Plugins", "Print Jobs");
                             break;
                         }
                     }
