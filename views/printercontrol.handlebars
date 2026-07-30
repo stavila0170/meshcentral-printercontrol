@@ -104,7 +104,7 @@
     </section>
 
     <section id="activityPanel" class="panel" hidden>
-        <div class="panel-head"><h2>Active print jobs — all printers</h2><span id="activityBadge" class="badge unknown">Stopped</span><span class="spacer"></span><span id="activityCount" class="muted"></span></div>
+        <div class="panel-head"><h2>Active print jobs — all printers (live)</h2><span id="activityBadge" class="badge unknown">Stopped</span><span class="spacer"></span><span id="activityCount" class="muted"></span></div>
         <div class="table-wrap">
             <table>
                 <thead><tr><th>Printer</th><th>ID</th><th>Document</th><th>User</th><th>Status</th><th>Driver progress</th><th>Size</th></tr></thead>
@@ -172,6 +172,9 @@ var PrinterControl = (function () {
         testPageJobRetryTimer: null,
         testPageEventPrinter: null,
         liveJobsByPrinter: {},
+        recentLiveJobs: {},
+        recentLiveJobTimers: {},
+        selectedRecentTimer: null,
         unloading: false
     };
 
@@ -355,22 +358,36 @@ var PrinterControl = (function () {
         panel.hidden = false;
         body.textContent = "";
         var active = [];
+        var activeKeys = {};
         for (var key in state.liveJobsByPrinter) {
             if (!Object.prototype.hasOwnProperty.call(state.liveJobsByPrinter, key)) continue;
             var bucket = state.liveJobsByPrinter[key];
             if (!bucket || !Array.isArray(bucket.jobs)) continue;
             for (var i = 0; i < bucket.jobs.length; i++) {
-                active.push({ printerName: bucket.printerName, job: bucket.jobs[i] });
+                var identity = liveJobIdentity(bucket.printerName, bucket.jobs[i]);
+                activeKeys[identity] = true;
+                active.push({ printerName: bucket.printerName, job: bucket.jobs[i], recent: false });
             }
         }
+        var recentCount = 0;
+        for (var recentKey in state.recentLiveJobs) {
+            if (!Object.prototype.hasOwnProperty.call(state.recentLiveJobs, recentKey) || activeKeys[recentKey]) continue;
+            var recentEntry = state.recentLiveJobs[recentKey];
+            if (!recentEntry) continue;
+            active.push({ printerName: recentEntry.printerName, job: recentEntry.job, recent: true });
+            recentCount++;
+        }
         active.sort(function (a, b) {
+            if (a.recent !== b.recent) return a.recent ? 1 : -1;
             var printerCompare = String(a.printerName).localeCompare(String(b.printerName));
             if (printerCompare !== 0) return printerCompare;
             return Number(getJobValue(a.job, ["id", "Id", "ID"], 0)) -
                 Number(getJobValue(b.job, ["id", "Id", "ID"], 0));
         });
-        document.getElementById("activityCount").textContent =
-            active.length ? active.length + " active job(s)" : "0 active jobs";
+        var activeCount = active.length - recentCount;
+        document.getElementById("activityCount").textContent = recentCount ?
+            activeCount + " active, " + recentCount + " recently sent" :
+            activeCount + " active job(s)";
         if (!active.length) {
             var empty = document.createElement("tr");
             var emptyCell = textCell(empty, state.liveRequested ?
@@ -399,6 +416,7 @@ var PrinterControl = (function () {
     }
 
     function startActivityFeed() {
+        clearRecentLiveJobs();
         state.liveJobsByPrinter = {};
         document.getElementById("activityPanel").hidden = false;
         var badge = document.getElementById("activityBadge");
@@ -408,6 +426,7 @@ var PrinterControl = (function () {
     }
 
     function stopActivityFeed() {
+        clearRecentLiveJobs();
         state.liveJobsByPrinter = {};
         var badge = document.getElementById("activityBadge");
         badge.textContent = "Stopped";
@@ -415,11 +434,53 @@ var PrinterControl = (function () {
         document.getElementById("activityPanel").hidden = true;
     }
 
+    function liveJobIdentity(printerName, job) {
+        return String(printerName || "").toLowerCase() + "|" +
+            String(getJobValue(job, ["id", "Id", "ID", "jobId", "JobId"], 0)) + "|" +
+            String(getJobValue(job, ["documentName", "DocumentName", "document", "Document"], "")).toLowerCase();
+    }
+
+    function clearRecentLiveJobs() {
+        for (var key in state.recentLiveJobTimers) {
+            if (!Object.prototype.hasOwnProperty.call(state.recentLiveJobTimers, key)) continue;
+            window.clearTimeout(state.recentLiveJobTimers[key]);
+        }
+        state.recentLiveJobTimers = {};
+        state.recentLiveJobs = {};
+        if (state.selectedRecentTimer != null) {
+            window.clearTimeout(state.selectedRecentTimer);
+            state.selectedRecentTimer = null;
+        }
+    }
+
+    function rememberRecentlySent(printerName, job) {
+        var identity = liveJobIdentity(printerName, job);
+        if (state.recentLiveJobTimers[identity] != null) {
+            window.clearTimeout(state.recentLiveJobTimers[identity]);
+        }
+        state.recentLiveJobs[identity] = { printerName: printerName, job: job };
+        state.recentLiveJobTimers[identity] = window.setTimeout(function () {
+            delete state.recentLiveJobTimers[identity];
+            delete state.recentLiveJobs[identity];
+            if (state.liveRequested) renderActivity();
+        }, 8000);
+    }
+
     function recordActivity(event) {
         var jobs = Array.isArray(event.jobs) ? event.jobs : [];
         var active = [];
         for (var i = 0; i < jobs.length; i++) {
-            if (!jobs[i] || jobs[i].recentCompleted === true) continue;
+            if (!jobs[i]) continue;
+            var identity = liveJobIdentity(event.printerName, jobs[i]);
+            if (jobs[i].recentCompleted === true) {
+                rememberRecentlySent(event.printerName, jobs[i]);
+                continue;
+            }
+            if (state.recentLiveJobTimers[identity] != null) {
+                window.clearTimeout(state.recentLiveJobTimers[identity]);
+                delete state.recentLiveJobTimers[identity];
+            }
+            delete state.recentLiveJobs[identity];
             active.push(jobs[i]);
         }
         var printerName = String(event.printerName || "");
@@ -459,11 +520,30 @@ var PrinterControl = (function () {
             if (!latest || !state.selectedPrinter) return;
             var jobs = Array.isArray(latest.jobs) ? latest.jobs : [];
             var activeJobs = [];
+            var displayJobs = [];
+            var hasRecent = false;
             for (var i = 0; i < jobs.length; i++) {
-                if (!jobs[i] || jobs[i].recentCompleted === true) continue;
+                if (!jobs[i]) continue;
+                displayJobs.push(jobs[i]);
+                if (jobs[i].recentCompleted === true) {
+                    hasRecent = true;
+                    continue;
+                }
                 activeJobs.push(jobs[i]);
             }
-            renderJobs({ printerName: latest.printerName, jobs: activeJobs });
+            if (state.selectedRecentTimer != null) {
+                window.clearTimeout(state.selectedRecentTimer);
+                state.selectedRecentTimer = null;
+            }
+            renderJobs({ printerName: latest.printerName, jobs: displayJobs });
+            if (hasRecent) {
+                state.selectedRecentTimer = window.setTimeout(function () {
+                    state.selectedRecentTimer = null;
+                    if (state.selectedPrinter === latest.printerName) {
+                        renderJobs({ printerName: latest.printerName, jobs: activeJobs });
+                    }
+                }, 8000);
+            }
             var eventName = String(latest.eventType || "");
             if (eventName.indexOf("Creation") >= 0) {
                 setTransientMessage("A print job was detected and displayed automatically.", "success");

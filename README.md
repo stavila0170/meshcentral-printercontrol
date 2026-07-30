@@ -1,6 +1,6 @@
-# Mesh Printer Control 0.4.26
+# Mesh Printer Control 0.4.27
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.26 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.27 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
 
 ## Included operations
 
@@ -16,7 +16,7 @@ The browser cannot submit PowerShell. The server and endpoint accept only the fi
 
 ### Refresh and live print-job behavior
 
-Version 0.4.26 performs no continuous printer-inventory polling or browser/server `Get-PrintJob` requests. The plugin iframe is lazy-loaded only after the **Printers** device tab is opened, so viewing a device or starting Desktop does not launch hidden printer work. Inventory is then loaded once, cached per device in the MeshCentral page and reused when returning from another tab. MeshCentral itself rebuilds plugin pages during some periodic device refreshes; when this happens, Printer Control restores the cached inventory silently and does not query the endpoint again. Later inventory updates occur only through the manual **Refresh** button or once after an operation that changes printer state. Duplicate reads share the existing operation or wait in a short per-device read queue instead of blocking the interface. A local `MM:SS` countdown shows the operation-specific server timeout for running and queued operations without generating additional network requests. While Live events is explicitly enabled, a bounded endpoint watcher compares `Win32_PrintJob` snapshots every 100 milliseconds. `Active print jobs — all printers`, located below the selected-printer queue, represents current state rather than history: jobs appear when detected, update in place, and disappear as soon as Windows removes them from the spooler. Multiple printers and jobs remain visible concurrently. The watcher stops when the tab is hidden, its lease expires, or the 10-minute safety limit is reached. Short event messages clear automatically after five seconds. The iframe document and tables provide vertical and horizontal scrolling plus footer clearance for narrow or short MeshCentral layouts. A test-page request is displayed immediately as a provisional job even when live events are off; after Windows accepts it, the queue is checked immediately and at most twice more over 2.5 seconds. Virtual or interactive printers that expose no queue item finish with a clear status instead of waiting indefinitely. The Permissions theme is applied as soon as the dialog opens without using a permanent DOM observer.
+Version 0.4.27 performs no continuous printer-inventory polling or browser/server `Get-PrintJob` requests. The plugin iframe is lazy-loaded only after the **Printers** device tab is opened, so viewing a device or starting Desktop does not launch hidden printer work. Inventory is loaded once, cached per device in the MeshCentral page and reused when returning from another tab. Later inventory updates occur only through the manual **Refresh** button or once after an operation that changes printer state. Duplicate reads share the existing operation or wait in a short per-device read queue instead of blocking the interface. A local `MM:SS` countdown shows the operation-specific server timeout without generating additional network requests. While Live events is explicitly enabled, an in-memory native wrapper waits for Windows Print Spooler job-change notifications. A short 25-millisecond snapshot burst starts only after such a notification; a one-second safety snapshot and the previous 100-millisecond fallback are used if native notification cannot be initialized. `Print jobs — all printers (live)`, below the selected-printer queue, represents current state: jobs appear when detected, update in place, and remain visible for eight seconds as `Sent to printer` after Windows removes them from the spooler. Multiple printers and jobs remain visible concurrently. If a job starts and finishes before Windows exposes its details, a temporary generic Spooler activity row confirms that movement was detected. The watcher stops when the tab is hidden, its lease expires, or the 10-minute safety limit is reached. Short event messages clear automatically after five seconds. The iframe document and tables provide vertical and horizontal scrolling plus footer clearance for narrow or short MeshCentral layouts. A test-page request is displayed immediately as a provisional job even when live events are off. Virtual or interactive printers that expose no queue item finish with a clear status instead of waiting indefinitely. The Permissions theme is applied as soon as the dialog opens without using a permanent DOM observer.
 
 Pressing **Jobs** loads the selected queue once and does not start background monitoring. Live monitoring is explicitly opt-in through **Start live events**. While enabled, the page sends a lightweight 15-second lease heartbeat; printer inventory and jobs are not polled. Monitoring stops immediately when another MeshCentral device tab is selected, and also stops when the heartbeat is lost, when the browser/server connection disappears, or after a 10-minute safety limit. MeshAgent also enforces an independent endpoint lease and the PowerShell watcher has its own 10-minute deadline, so an orphaned process cannot remain active indefinitely. Normal printer operations run asynchronously, use operation-specific endpoint limits from 30 to 90 seconds and are serialized to one PowerShell process per agent. **Refresh jobs** remains available as a manual fallback.
 
@@ -52,7 +52,7 @@ Enable the plugin in the `settings` section of `meshcentral-data/config.json`:
 
 Retain existing entries in `plugins.list`. Restart MeshCentral after copying the plugin. On Windows-hosted MeshCentral, `Install-MeshCentralPlugin.ps1` performs the copy, verifies every installed file and optionally restarts the service.
 
-For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.26` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
+For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.27` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
 
 ```powershell
 docker exec meshcentral rm -rf /opt/meshcentral/meshcentral-data/plugins/printercontrol
@@ -82,7 +82,7 @@ Use that raw URL when adding the plugin to MeshCentral. The GitHub archive refer
 
 ## Upgrade from 0.3.x
 
-Install 0.4.26 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
+Install 0.4.27 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
 
 ```powershell
 Stop-Service MeshPrinterControl -Force -ErrorAction SilentlyContinue
@@ -90,7 +90,7 @@ sc.exe delete MeshPrinterControl
 Remove-Item "$env:ProgramData\MeshPrinterControl" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-Version 0.4.26 does not recreate this directory.
+Version 0.4.27 does not recreate this directory.
 
 ## Security design
 

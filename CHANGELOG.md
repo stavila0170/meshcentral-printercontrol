@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.27
+
+- Wake live monitoring from native Windows Print Spooler job-change notifications instead of relying only on a fixed polling interval.
+- Run a short 25-millisecond `Win32_PrintJob` snapshot burst after a native notification, with a one-second safety snapshot and the existing 100-millisecond fallback when native notification is unavailable.
+- Keep completed jobs visible for eight seconds as `Sent to printer` in both the selected queue and the all-printers live table.
+- Show a temporary generic Spooler activity row when a job completes before Windows exposes enough metadata for a queue snapshot.
+
 ## 0.4.26
 
 - Replace the transition history with a real-time `Active print jobs — all printers` table.
