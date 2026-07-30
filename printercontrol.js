@@ -16,11 +16,8 @@ module.exports.printercontrol = function (parent) {
     obj.debug = obj.meshServer.debug;
     obj.VIEWS = __dirname + "/views/";
     obj.pending = Object.create(null);
-    obj.activeOperations = Object.create(null);
-    obj.readQueues = Object.create(null);
     obj.jobSubscriptions = Object.create(null);
     obj.watcherLeaseRenewed = Object.create(null);
-    obj.watcherState = Object.create(null);
     obj.subscriptionCleanupTimer = null;
     obj.exports = ["onWebUIStartupEnd", "onDeviceRefreshEnd"];
 
@@ -29,29 +26,6 @@ module.exports.printercontrol = function (parent) {
     var CLEANUP_INTERVAL_MS = 10000;
     var AGENT_WATCHER_LEASE_MS = 55000;
     var AGENT_LEASE_RENEW_MIN_MS = 10000;
-    var MAX_SUBSCRIPTIONS_PER_NODE = 8;
-    var MAX_SUBSCRIPTIONS_TOTAL = 128;
-    var MAX_PENDING_REQUESTS = 256;
-    var MAX_COALESCED_READ_WAITERS = 16;
-    var MAX_QUEUED_READS_PER_NODE = 8;
-    var QUEUED_READ_TTL_MS = 150000;
-    var DEFAULT_OPERATION_TIMEOUT_MS = 135000;
-    var OPERATION_TIMEOUTS_MS = {
-        inventory: 105000,
-        jobs: 60000,
-        cancelJob: 45000,
-        pauseJob: 45000,
-        resumeJob: 45000,
-        testPage: 45000,
-        addTcpPrinter: 105000,
-        deletePrinter: 105000,
-        removePort: 105000,
-        removeDriver: 105000,
-        spoolerStart: 60000,
-        spoolerStop: 60000,
-        spoolerRestart: 75000,
-        clearQueue: 105000
-    };
 
     var ACTION_PERMISSIONS = {
         inventory: "can_view",
@@ -107,24 +81,11 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.28 started with post-spooler physical printer monitoring");
-    };
-
-    obj.server_shutdown = function () {
-        if (obj.subscriptionCleanupTimer != null) {
-            clearInterval(obj.subscriptionCleanupTimer);
-            obj.subscriptionCleanupTimer = null;
+        if (obj.subscriptionCleanupTimer == null) {
+            obj.subscriptionCleanupTimer = setInterval(cleanupJobSubscriptions, CLEANUP_INTERVAL_MS);
+            if (obj.subscriptionCleanupTimer && typeof obj.subscriptionCleanupTimer.unref === "function") obj.subscriptionCleanupTimer.unref();
         }
-        for (var requestId in obj.pending) {
-            if (!Object.prototype.hasOwnProperty.call(obj.pending, requestId)) continue;
-            if (obj.pending[requestId] && obj.pending[requestId].timer) clearTimeout(obj.pending[requestId].timer);
-        }
-        obj.pending = Object.create(null);
-        obj.activeOperations = Object.create(null);
-        obj.readQueues = Object.create(null);
-        obj.jobSubscriptions = Object.create(null);
-        obj.watcherLeaseRenewed = Object.create(null);
-        obj.watcherState = Object.create(null);
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.13 started with lazy-loaded, non-overlapping printer reads");
     };
 
     // This function is serialized into the MeshCentral web application. Keep it
@@ -217,38 +178,19 @@ module.exports.printercontrol = function (parent) {
         applyThemeToDialog();
 
         // Avoid a permanent MutationObserver on MeshCentral's entire DOM. The
-        // permissions window can be opened by either a button click or an Action
-        // select change. Listen only for those user events and inspect compact
-        // attributes instead of reading textContent from large page containers.
-        if (!window.__printerControlPermissionsThemeEventHandler) {
-            var permissionEventHandler = function (event) {
+        // permissions window is opened by a user click, so apply the theme only
+        // around that click and keep a manual console helper as a fallback.
+        if (!window.__printerControlPermissionsThemeClickHandler) {
+            var permissionClickHandler = function (event) {
                 var target = event && event.target;
                 var relevant = false;
                 while (target && target !== document) {
                     var id = String(target.id || "").toLowerCase();
+                    var text = String(target.textContent || "").replace(/^\s+|\s+$/g, "").toLowerCase();
                     var onclick = "";
-                    var value = "";
-                    var label = "";
-                    var selectedText = "";
                     try { onclick = String(target.getAttribute && target.getAttribute("onclick") || "").toLowerCase(); } catch (ignore) { }
-                    try { value = String(target.value || "").toLowerCase(); } catch (ignoreValue) { }
-                    try {
-                        label = String(target.getAttribute && (target.getAttribute("aria-label") || target.getAttribute("title")) || "").toLowerCase();
-                    } catch (ignoreLabel) { }
-                    try {
-                        if (target.options && target.selectedIndex >= 0 && target.options[target.selectedIndex]) {
-                            selectedText = String(target.options[target.selectedIndex].text || target.options[target.selectedIndex].textContent || "").toLowerCase();
-                        }
-                    } catch (ignoreOption) { }
-                    var tagName = String(target.tagName || "").toLowerCase();
-                    var compactText = "";
-                    if (tagName === "button" || tagName === "a" || tagName === "label" || tagName === "option") {
-                        try { compactText = String(target.textContent || "").replace(/^\s+|\s+$/g, "").toLowerCase(); } catch (ignoreText) { }
-                    }
                     if (id.indexOf("pluginperm") >= 0 || onclick.indexOf("pluginperm") >= 0 ||
-                            onclick.indexOf("permission") >= 0 || value.indexOf("permission") >= 0 ||
-                            label.indexOf("permission") >= 0 || selectedText.indexOf("permission") >= 0 ||
-                            compactText === "permissions") {
+                            onclick.indexOf("permission") >= 0 || text === "permissions") {
                         relevant = true;
                         break;
                     }
@@ -256,12 +198,10 @@ module.exports.printercontrol = function (parent) {
                 }
                 if (!relevant) return;
                 window.setTimeout(applyThemeToDialog, 0);
-                window.setTimeout(applyThemeToDialog, 50);
-                window.setTimeout(applyThemeToDialog, 200);
+                window.setTimeout(applyThemeToDialog, 100);
             };
-            document.addEventListener("click", permissionEventHandler, true);
-            document.addEventListener("change", permissionEventHandler, true);
-            window.__printerControlPermissionsThemeEventHandler = permissionEventHandler;
+            document.addEventListener("click", permissionClickHandler, true);
+            window.__printerControlPermissionsThemeClickHandler = permissionClickHandler;
         }
 
         // Expose a tiny diagnostic helper in the browser console.
@@ -289,7 +229,6 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral refreshes the device while Desktop is opening, do not reload
         // the plugin and do not start another printer inventory operation.
         var existing = document.getElementById("pluginIframePrinterControl");
-        if (existing && !page.contains(existing)) existing = null;
         var existingNodeKey = existing ? String(existing.getAttribute("data-nodeid") || "") : "";
         if (existing && existingNodeKey !== nodeKey) {
             try {
@@ -298,21 +237,12 @@ module.exports.printercontrol = function (parent) {
                     existing.contentWindow.PrinterControl.unsubscribeJobs();
                 }
             } catch (ignore) { }
-            try {
-                if (existing.parentNode) existing.parentNode.removeChild(existing);
-            } catch (ignoreRemove) { }
             existing = null;
         }
 
         page.setAttribute("data-printercontrol-nodeid", nodeKey);
         if (!existing || existingNodeKey !== nodeKey) {
-            // QA() appends through innerHTML and can recreate an existing iframe.
-            // Replace the page explicitly so repeated device-refresh callbacks
-            // cannot leave multiple placeholders or duplicate plugin frames.
-            page.innerHTML = '<div id="pluginPrinterControlPlaceholder" style="padding:18px;color:#777;text-align:center">Printer Control loads only when the Printers tab is opened.</div>';
-        } else {
-            var stalePlaceholder = document.getElementById("pluginPrinterControlPlaceholder");
-            if (stalePlaceholder && stalePlaceholder.parentNode === page) stalePlaceholder.parentNode.removeChild(stalePlaceholder);
+            QA("pluginPrinterControl", '<div id="pluginPrinterControlPlaceholder" style="padding:18px;color:#777;text-align:center">Printer Control loads only when the Printers tab is opened.</div>');
         }
 
         function pageIsVisible(element) {
@@ -338,43 +268,10 @@ module.exports.printercontrol = function (parent) {
             if (!currentPage) return false;
             var currentNodeKey = String(currentPage.getAttribute("data-printercontrol-nodeid") || "");
             if (!currentNodeKey) return false;
-            var currentIframe = null;
-            var frames = currentPage.querySelectorAll("iframe");
-            for (var frameIndex = 0; frameIndex < frames.length; frameIndex++) {
-                var candidate = frames[frameIndex];
-                var candidateNodeKey = String(candidate.getAttribute("data-nodeid") || "");
-                if (currentIframe == null && candidate.id === "pluginIframePrinterControl" && candidateNodeKey === currentNodeKey) {
-                    currentIframe = candidate;
-                } else {
-                    try {
-                        if (candidate.contentWindow && candidate.contentWindow.PrinterControl &&
-                                typeof candidate.contentWindow.PrinterControl.unsubscribeJobs === "function") {
-                            candidate.contentWindow.PrinterControl.unsubscribeJobs();
-                        }
-                    } catch (ignoreFrame) { }
-                    try {
-                        if (candidate.parentNode === currentPage) currentPage.removeChild(candidate);
-                    } catch (ignoreFrameRemove) { }
-                }
-            }
-            if (currentIframe) {
-                var oldPlaceholder = document.getElementById("pluginPrinterControlPlaceholder");
-                if (oldPlaceholder && oldPlaceholder.parentNode === currentPage) oldPlaceholder.parentNode.removeChild(oldPlaceholder);
-                return true;
-            }
+            var currentIframe = document.getElementById("pluginIframePrinterControl");
+            if (currentIframe && String(currentIframe.getAttribute("data-nodeid") || "") === currentNodeKey) return true;
             if (force !== true && !pageIsVisible(currentPage)) return false;
-            currentPage.innerHTML = "";
-            currentIframe = document.createElement("iframe");
-            currentIframe.id = "pluginIframePrinterControl";
-            currentIframe.setAttribute("data-nodeid", currentNodeKey);
-            currentIframe.setAttribute("title", "Printer Control");
-            currentIframe.setAttribute("scrolling", "yes");
-            currentIframe.setAttribute("frameBorder", "0");
-            currentIframe.style.width = "100%";
-            currentIframe.style.height = "760px";
-            currentIframe.style.overflow = "auto";
-            currentIframe.src = "/pluginadmin.ashx?pin=printercontrol&user=1&nodeid=" + currentNodeKey;
-            currentPage.appendChild(currentIframe);
+            QA("pluginPrinterControl", '<iframe id="pluginIframePrinterControl" data-nodeid="' + currentNodeKey + '" title="Printer Control" style="width:100%;height:760px;overflow:auto" scrolling="yes" frameBorder="0" src="/pluginadmin.ashx?pin=printercontrol&user=1&nodeid=' + currentNodeKey + '"></iframe>');
             return true;
         };
 
@@ -402,16 +299,9 @@ module.exports.printercontrol = function (parent) {
                 }
                 if (!target || target === document) return;
                 var targetId = String(target.id || "");
-                if (targetId === "p19ph-pluginPrinterControl") {
+                if (targetId === "MainDevPlugins" || targetId === "p19ph-pluginPrinterControl") {
                     window.setTimeout(function () {
                         if (typeof window.__printerControlLoadCurrent === "function") window.__printerControlLoadCurrent(true);
-                    }, 0);
-                } else if (targetId === "MainDevPlugins") {
-                    // The generic Plugins tab can contain several extensions.
-                    // Wait for MeshCentral to reveal the persisted child tab and
-                    // load only when Printer Control is actually the visible page.
-                    window.setTimeout(function () {
-                        if (typeof window.__printerControlLoadCurrent === "function") window.__printerControlLoadCurrent(false);
                     }, 0);
                 } else if (targetId.indexOf("MainDev") === 0 || targetId.indexOf("p19ph-") === 0) {
                     if (typeof window.__printerControlStopLive === "function") window.__printerControlStopLive();
@@ -489,10 +379,9 @@ module.exports.printercontrol = function (parent) {
         return message;
     }
 
-    function fail(session, action, error, requestId, clientRequestId) {
+    function fail(session, action, error, requestId) {
         sendToSession(session, browserMessage("result", {
             requestId: requestId || null,
-            clientRequestId: clientRequestId || null,
             operation: action || null,
             success: false,
             error: String(error || "Request failed")
@@ -542,11 +431,8 @@ module.exports.printercontrol = function (parent) {
     }
 
     function sourceMatchesPending(command, agent, pending) {
-        var agentNodeId = agent && agent.dbNodeKey;
-        if (typeof agentNodeId === "string") {
-            return agentNodeId === pending.nodeid && (!command.nodeid || command.nodeid === agentNodeId);
-        }
-        return typeof command.nodeid === "string" && command.nodeid === pending.nodeid;
+        var sourceNodeId = command.nodeid || (agent && agent.dbNodeKey);
+        return !sourceNodeId || sourceNodeId === pending.nodeid;
     }
 
 
@@ -575,233 +461,29 @@ module.exports.printercontrol = function (parent) {
         return false;
     }
 
-    function countOwn(object) {
-        var count = 0;
-        if (!object) return count;
-        for (var key in object) {
-            if (Object.prototype.hasOwnProperty.call(object, key)) count++;
-        }
-        return count;
-    }
-
-    function operationTimeoutMs(operation) {
-        var value = OPERATION_TIMEOUTS_MS[operation];
-        return typeof value === "number" && isFinite(value) && value > 0 ? value : DEFAULT_OPERATION_TIMEOUT_MS;
-    }
-
-    function totalSubscriptionCount() {
-        var count = 0;
-        for (var nodeid in obj.jobSubscriptions) {
-            if (Object.prototype.hasOwnProperty.call(obj.jobSubscriptions, nodeid)) count += countOwn(obj.jobSubscriptions[nodeid]);
-        }
-        return count;
-    }
-
-    function hasAnySubscriptions() {
-        for (var nodeid in obj.jobSubscriptions) {
-            if (Object.prototype.hasOwnProperty.call(obj.jobSubscriptions, nodeid) && bucketHasEntries(obj.jobSubscriptions[nodeid])) return true;
-        }
-        return false;
-    }
-
-    function updateSubscriptionCleanupTimer() {
-        var needed = hasAnySubscriptions();
-        if (needed && obj.subscriptionCleanupTimer == null) {
-            obj.subscriptionCleanupTimer = setInterval(cleanupJobSubscriptions, CLEANUP_INTERVAL_MS);
-            if (obj.subscriptionCleanupTimer && typeof obj.subscriptionCleanupTimer.unref === "function") obj.subscriptionCleanupTimer.unref();
-        } else if (!needed && obj.subscriptionCleanupTimer != null) {
-            clearInterval(obj.subscriptionCleanupTimer);
-            obj.subscriptionCleanupTimer = null;
-        }
-    }
-
-    function releaseActiveOperation(nodeid, requestId) {
-        if (nodeid && obj.activeOperations[nodeid] === requestId) delete obj.activeOperations[nodeid];
-    }
-
-    function canCoalesceRead(pending, operation, params) {
-        if (!pending || pending.kind || pending.operation !== operation) return false;
-        if (operation === "inventory") return true;
-        if (operation !== "jobs") return false;
-        var activePrinter = pending.params && pending.params.printerName;
-        var requestedPrinter = params && params.printerName;
-        return typeof activePrinter === "string" && activePrinter === requestedPrinter;
-    }
-
-    function notifyPendingOperation(pending, requestId, success, error, data) {
-        var recipients = [{
-            session: pending.session,
-            clientRequestId: pending.clientRequestId || null
-        }].concat(Array.isArray(pending.waiters) ? pending.waiters : []);
-        for (var i = 0; i < recipients.length; i++) {
-            sendToSession(recipients[i].session, browserMessage("result", {
-                requestId: requestId,
-                clientRequestId: recipients[i].clientRequestId || null,
-                operation: pending.operation,
-                success: success === true,
-                error: success === true ? null : String(error || "Operation failed"),
-                data: data == null ? null : data
-            }));
-        }
-    }
-
-    function isReadOperation(operation) {
-        return operation === "inventory" || operation === "jobs";
-    }
-
-    function readQueue(nodeid, create) {
-        var queue = obj.readQueues[nodeid];
-        if (!queue && create) {
-            queue = [];
-            obj.readQueues[nodeid] = queue;
-        }
-        return queue;
-    }
-
-    function startPendingOperation(item) {
-        if (!item || !isValidNodeId(item.nodeid)) return false;
-        if (!agentIsOnline(item.nodeid)) {
-            notifyPendingOperation(item, null, false, "MeshAgent is offline", null);
-            return false;
-        }
-        if (countOwn(obj.pending) >= MAX_PENDING_REQUESTS) {
-            notifyPendingOperation(item, null, false, "The printer operation queue is temporarily full", null);
-            return false;
-        }
-
-        var requestId = crypto.randomBytes(18).toString("hex");
-        var timeoutMs = operationTimeoutMs(item.operation);
-        obj.activeOperations[item.nodeid] = requestId;
-        var timer = setTimeout(function () {
-            var pending = obj.pending[requestId];
-            if (!pending) return;
-            delete obj.pending[requestId];
-            releaseActiveOperation(pending.nodeid, requestId);
-            notifyPendingOperation(pending, requestId, false, "Printer operation timed out", null);
-            dispatchNextRead(pending.nodeid);
-        }, timeoutMs);
-
-        obj.pending[requestId] = {
-            nodeid: item.nodeid,
-            operation: item.operation,
-            clientRequestId: item.clientRequestId || null,
-            params: item.params || {},
-            waiters: Array.isArray(item.waiters) ? item.waiters : [],
-            session: item.session,
-            userid: item.userid,
-            startedAt: Date.now(),
-            timeoutMs: timeoutMs,
-            timer: timer
-        };
-
-        var sent = sendToAgent(item.nodeid, {
-            action: "plugin",
-            plugin: "printercontrol",
-            pluginaction: item.operation,
-            params: item.params || {},
-            requestId: requestId
-        });
-        if (!sent) {
-            clearTimeout(timer);
-            var failedPending = obj.pending[requestId];
-            delete obj.pending[requestId];
-            releaseActiveOperation(item.nodeid, requestId);
-            notifyPendingOperation(failedPending, requestId, false, "Unable to contact MeshAgent", null);
-            dispatchNextRead(item.nodeid);
-            return false;
-        }
-        sendToSession(item.session, browserMessage("started", {
-            nodeid: item.nodeid,
-            operation: item.operation,
-            clientRequestId: item.clientRequestId || null,
-            timeoutInMs: timeoutMs
-        }));
-        return true;
-    }
-
-    function queueReadOperation(item, activeOperation, activeTimeoutInMs) {
-        var queue = readQueue(item.nodeid, true);
-        if (queue.length >= MAX_QUEUED_READS_PER_NODE) return false;
-        var remainingTimeout = Number(activeTimeoutInMs);
-        if (!isFinite(remainingTimeout) || remainingTimeout < 0) remainingTimeout = operationTimeoutMs(activeOperation);
-        item.queuedAt = Date.now();
-        queue.push(item);
-        sendToSession(item.session, browserMessage("queued", {
-            nodeid: item.nodeid,
-            operation: item.operation,
-            clientRequestId: item.clientRequestId || null,
-            activeOperation: activeOperation || null,
-            timeoutInMs: remainingTimeout
-        }));
-        return true;
-    }
-
-    function dispatchNextRead(nodeid) {
-        if (obj.activeOperations[nodeid]) return;
-        var queue = readQueue(nodeid, false);
-        if (!queue || queue.length === 0) {
-            delete obj.readQueues[nodeid];
-            return;
-        }
-        while (queue.length > 0) {
-            var next = queue.shift();
-            if (!next || (Date.now() - Number(next.queuedAt || 0)) > QUEUED_READ_TTL_MS) {
-                if (next) notifyPendingOperation(next, null, false, "Queued printer read expired", null);
-                continue;
-            }
-            if (queue.length === 0) delete obj.readQueues[nodeid];
-            if (!startPendingOperation(next)) {
-                setTimeout(function () { dispatchNextRead(nodeid); }, 0);
-            }
-            return;
-        }
-        delete obj.readQueues[nodeid];
-    }
-
     function removeSubscriptionsForSession(nodeid, session) {
         var bucket = subscriptionBucket(nodeid, false);
         if (!bucket) return;
         for (var id in bucket) {
             if (Object.prototype.hasOwnProperty.call(bucket, id) && bucket[id] && bucket[id].session === session) delete bucket[id];
         }
-        updateSubscriptionCleanupTimer();
-    }
-
-    function failSubscriptionsForNode(nodeid, error) {
-        var bucket = subscriptionBucket(nodeid, false);
-        if (bucket) {
-            for (var id in bucket) {
-                if (!Object.prototype.hasOwnProperty.call(bucket, id)) continue;
-                var sub = bucket[id];
-                if (sub && sub.session) {
-                    sendToSession(sub.session, browserMessage("watcherStatus", {
-                        nodeid: nodeid,
-                        success: false,
-                        error: String(error || "Print-job event watcher stopped")
-                    }));
-                }
-            }
-        }
-        delete obj.jobSubscriptions[nodeid];
-        delete obj.watcherLeaseRenewed[nodeid];
-        delete obj.watcherState[nodeid];
-        updateSubscriptionCleanupTimer();
     }
 
     function sendWatcherControl(nodeid, action, session, userid, params) {
         if (!agentIsOnline(nodeid)) return false;
-        if (countOwn(obj.pending) >= MAX_PENDING_REQUESTS) return false;
         var requestId = crypto.randomBytes(18).toString("hex");
-        if (action === "watchJobsStart") obj.watcherState[nodeid] = "starting";
-        if (action === "watchJobsStop") obj.watcherState[nodeid] = "stopping";
         var timer = setTimeout(function () {
             var pending = obj.pending[requestId];
             if (!pending) return;
             delete obj.pending[requestId];
             if (pending.kind === "watcherStart") {
-                failSubscriptionsForNode(pending.nodeid, "Print-job event watcher timed out");
-            } else {
-                delete obj.watcherState[pending.nodeid];
+                sendToSession(pending.session, browserMessage("watcherStatus", {
+                    nodeid: pending.nodeid,
+                    success: false,
+                    error: "Print-job event watcher timed out"
+                }));
+                removeSubscriptionsForSession(pending.nodeid, pending.session);
+                stopWatcherIfUnused(pending.nodeid);
             }
         }, 30000);
         obj.pending[requestId] = {
@@ -822,7 +504,6 @@ module.exports.printercontrol = function (parent) {
         if (!sent) {
             clearTimeout(timer);
             delete obj.pending[requestId];
-            delete obj.watcherState[nodeid];
         }
         return sent;
     }
@@ -846,10 +527,7 @@ module.exports.printercontrol = function (parent) {
         if (bucketHasEntries(bucket)) return;
         delete obj.jobSubscriptions[nodeid];
         delete obj.watcherLeaseRenewed[nodeid];
-        updateSubscriptionCleanupTimer();
-        if (obj.watcherState[nodeid] && obj.watcherState[nodeid] !== "stopping") {
-            sendWatcherControl(nodeid, "watchJobsStop", null, null, {});
-        }
+        sendWatcherControl(nodeid, "watchJobsStop", null, null, {});
     }
 
     function expireSubscription(nodeid, id, subscription, reason) {
@@ -862,7 +540,6 @@ module.exports.printercontrol = function (parent) {
                 reason: reason || "Live monitoring expired"
             }));
         }
-        updateSubscriptionCleanupTimer();
     }
 
     function cleanupJobSubscriptions() {
@@ -882,7 +559,6 @@ module.exports.printercontrol = function (parent) {
             }
             stopWatcherIfUnused(nodeid);
         }
-        updateSubscriptionCleanupTimer();
     }
 
     function handleJobSubscription(command, session, webserver, subscribe) {
@@ -929,18 +605,6 @@ module.exports.printercontrol = function (parent) {
                     fail(session, operation, "MeshAgent is offline");
                     return;
                 }
-                var existing = bucket[params.subscriptionId];
-                var bucketWasEmpty = !bucketHasEntries(bucket);
-                if (!existing && countOwn(bucket) >= MAX_SUBSCRIPTIONS_PER_NODE) {
-                    if (!bucketHasEntries(bucket)) delete obj.jobSubscriptions[command.nodeid];
-                    fail(session, operation, "Too many live-monitoring subscriptions for this device");
-                    return;
-                }
-                if (!existing && totalSubscriptionCount() >= MAX_SUBSCRIPTIONS_TOTAL) {
-                    if (!bucketHasEntries(bucket)) delete obj.jobSubscriptions[command.nodeid];
-                    fail(session, operation, "The live-monitoring subscription limit was reached");
-                    return;
-                }
                 var now = Date.now();
                 bucket[params.subscriptionId] = {
                     session: session,
@@ -950,7 +614,6 @@ module.exports.printercontrol = function (parent) {
                     created: now,
                     updated: now
                 };
-                updateSubscriptionCleanupTimer();
                 sendToSession(session, browserMessage("subscription", {
                     nodeid: command.nodeid,
                     success: true,
@@ -958,17 +621,14 @@ module.exports.printercontrol = function (parent) {
                     subscriptionId: params.subscriptionId,
                     printerName: params.printerName
                 }));
-                if (bucketWasEmpty && !sendWatcherControl(command.nodeid, "watchJobsStart", session, user._id, { leaseMs: AGENT_WATCHER_LEASE_MS })) {
+                if (!sendWatcherControl(command.nodeid, "watchJobsStart", session, user._id, { leaseMs: AGENT_WATCHER_LEASE_MS })) {
                     delete bucket[params.subscriptionId];
-                    updateSubscriptionCleanupTimer();
                     sendToSession(session, browserMessage("watcherStatus", {
                         nodeid: command.nodeid,
                         success: false,
                         error: "Unable to contact MeshAgent for print-job events"
                     }));
                     stopWatcherIfUnused(command.nodeid);
-                } else if (!bucketWasEmpty && obj.watcherState[command.nodeid] === "active") {
-                    renewWatcherLease(command.nodeid, false);
                 }
             }).catch(function (permissionError) {
                 fail(session, operation, permissionError.message || permissionError);
@@ -1032,10 +692,7 @@ module.exports.printercontrol = function (parent) {
                     pagesPrinted: typeof job.pagesPrinted === "number" ? job.pagesPrinted : parseInt(job.pagesPrinted, 10) || 0,
                     size: typeof job.size === "number" ? job.size : parseInt(job.size, 10) || 0,
                     submittedTime: typeof job.submittedTime === "string" ? job.submittedTime.substring(0, 64) : null,
-                    recentCompleted: job.recentCompleted === true,
-                    physicalPending: job.physicalPending === true,
-                    physicalStatusReported: job.physicalStatusReported === true,
-                    deviceState: typeof job.deviceState === "string" ? job.deviceState.substring(0, 128) : ""
+                    recentCompleted: job.recentCompleted === true
                 });
             }
         }
@@ -1052,15 +709,15 @@ module.exports.printercontrol = function (parent) {
     }
 
     function handleAgentPush(command, agent) {
-        var nodeid = agent && agent.dbNodeKey;
+        var nodeid = command.nodeid || (agent && agent.dbNodeKey);
         if (!isValidNodeId(nodeid)) return;
-        if (command.nodeid && command.nodeid !== nodeid) return;
 
         if (command.pluginaction === "jobQueueChanged") {
             var event = sanitizeJobEvent(command);
             if (!event) return;
             var bucket = subscriptionBucket(nodeid, false);
             if (!bucket) return;
+            var eventPrinter = event.printerName.toLowerCase();
             for (var id in bucket) {
                 if (!Object.prototype.hasOwnProperty.call(bucket, id)) continue;
                 var sub = bucket[id];
@@ -1068,9 +725,7 @@ module.exports.printercontrol = function (parent) {
                     expireSubscription(nodeid, id, sub, "Live monitoring subscription expired.");
                     continue;
                 }
-                // The endpoint watcher already observes all queues. Forward the
-                // rare spooler event to each authorized live subscription so the
-                // browser can follow a job started outside MeshCentral.
+                if (sub.printerNameLower !== eventPrinter) continue;
                 if (!sendToSession(sub.session, browserMessage("jobEvent", {
                     nodeid: nodeid,
                     subscriptionId: id,
@@ -1086,23 +741,22 @@ module.exports.printercontrol = function (parent) {
         if (command.pluginaction === "jobWatcherStatus") {
             var statusBucket = subscriptionBucket(nodeid, false);
             if (!statusBucket) return;
-            if (command.success !== true) {
-                failSubscriptionsForNode(nodeid, command.error || "Print-job watcher stopped");
-                stopWatcherIfUnused(nodeid);
-                return;
-            }
             for (var subId in statusBucket) {
                 if (!Object.prototype.hasOwnProperty.call(statusBucket, subId)) continue;
                 if (!sendToSession(statusBucket[subId].session, browserMessage("watcherStatus", {
                     nodeid: nodeid,
-                    success: true,
-                    error: null
+                    success: command.success === true,
+                    error: command.success === true ? null : String(command.error || "Print-job watcher stopped")
                 }))) {
                     delete statusBucket[subId];
                 }
             }
-            obj.watcherState[nodeid] = "active";
-            renewWatcherLease(nodeid, true);
+            if (command.success !== true) {
+                delete obj.jobSubscriptions[nodeid];
+                delete obj.watcherLeaseRenewed[nodeid];
+            } else {
+                renewWatcherLease(nodeid, true);
+            }
             stopWatcherIfUnused(nodeid);
         }
     }
@@ -1129,10 +783,17 @@ module.exports.printercontrol = function (parent) {
         });
     }
 
+    function hasPendingReadOperation(nodeid, operation) {
+        for (var requestId in obj.pending) {
+            var pending = obj.pending[requestId];
+            if (pending && pending.nodeid === nodeid && pending.operation === operation) return true;
+        }
+        return false;
+    }
+
     function handleBrowserOperation(command, session, webserver) {
         var operation = command.pluginaction;
         var requiredPermission = ACTION_PERMISSIONS[operation];
-        var clientRequestId = typeof command.clientRequestId === "string" && /^[a-f0-9]{32}$/.test(command.clientRequestId) ? command.clientRequestId : null;
         if (!requiredPermission) {
             fail(session, operation, "Unsupported printer operation");
             return;
@@ -1164,64 +825,41 @@ module.exports.printercontrol = function (parent) {
                     fail(session, operation, "MeshAgent is offline");
                     return;
                 }
-                // Serialize all PowerShell work per endpoint. This protects the
-                // shared MeshAgent process from overlapping reads and mutations
-                // initiated by repeated clicks or multiple browser sessions.
-                var activeRequestId = obj.activeOperations[command.nodeid];
-                if (activeRequestId) {
-                    var activePending = obj.pending[activeRequestId];
-                    if (!activePending) {
-                        delete obj.activeOperations[command.nodeid];
-                        activeRequestId = null;
-                    }
-                }
-                if (activeRequestId) {
-                    activePending = obj.pending[activeRequestId];
-                    if (canCoalesceRead(activePending, operation, command.params || {}) &&
-                            activePending.waiters.length < MAX_COALESCED_READ_WAITERS) {
-                        activePending.waiters.push({
-                            session: session,
-                            userid: user._id,
-                            clientRequestId: clientRequestId
-                        });
-                        sendToSession(session, browserMessage("started", {
-                            nodeid: command.nodeid,
-                            operation: operation,
-                            clientRequestId: clientRequestId,
-                            timeoutInMs: Math.max(0, Number(activePending.timeoutMs || operationTimeoutMs(activePending.operation)) -
-                                (Date.now() - Number(activePending.startedAt || Date.now())))
-                        }));
-                        obj.debug("plugin:printercontrol", "Coalesced duplicate " + operation + " request for " + command.nodeid);
-                        return;
-                    }
-                    if (isReadOperation(operation)) {
-                        if (!queueReadOperation({
-                            nodeid: command.nodeid,
-                            operation: operation,
-                            clientRequestId: clientRequestId,
-                            params: command.params || {},
-                            waiters: [],
-                            session: session,
-                            userid: user._id
-                        }, activePending && activePending.operation,
-                            activePending ? Math.max(0, Number(activePending.timeoutMs || operationTimeoutMs(activePending.operation)) -
-                                (Date.now() - Number(activePending.startedAt || Date.now()))) : operationTimeoutMs(operation))) {
-                            fail(session, operation, "Too many printer reads are already waiting for this device", null, clientRequestId);
-                        }
-                        return;
-                    }
-                    fail(session, operation, "A " + String((activePending && activePending.operation) || "printer") + " operation is already running for this device", null, clientRequestId);
+                // A repeated iframe load or multiple browser tabs must not start
+                // overlapping expensive read operations on the same endpoint.
+                if ((operation === "inventory" || operation === "jobs") && hasPendingReadOperation(command.nodeid, operation)) {
+                    fail(session, operation, "A printer read operation is already running for this device");
                     return;
                 }
-                startPendingOperation({
+                var requestId = crypto.randomBytes(18).toString("hex");
+                var timer = setTimeout(function () {
+                    var pending = obj.pending[requestId];
+                    if (!pending) return;
+                    delete obj.pending[requestId];
+                    fail(pending.session, pending.operation, "Printer operation timed out", requestId);
+                }, 180000);
+
+                obj.pending[requestId] = {
                     nodeid: command.nodeid,
                     operation: operation,
-                    clientRequestId: clientRequestId,
                     params: command.params || {},
-                    waiters: [],
                     session: session,
-                    userid: user._id
+                    userid: user._id,
+                    timer: timer
+                };
+
+                var sent = sendToAgent(command.nodeid, {
+                    action: "plugin",
+                    plugin: "printercontrol",
+                    pluginaction: operation,
+                    params: command.params || {},
+                    requestId: requestId
                 });
+                if (!sent) {
+                    clearTimeout(timer);
+                    delete obj.pending[requestId];
+                    fail(session, operation, "Unable to contact MeshAgent", requestId);
+                }
             }).catch(function (permissionError) {
                 fail(session, operation, permissionError.message || permissionError);
             });
@@ -1242,31 +880,23 @@ module.exports.printercontrol = function (parent) {
         delete obj.pending[command.requestId];
 
         if (pending.kind === "watcherStart" || pending.kind === "watcherStop") {
-            if (pending.kind === "watcherStart") {
+            if (pending.kind === "watcherStart" && pending.session) {
+                sendToSession(pending.session, browserMessage("watcherStatus", {
+                    nodeid: pending.nodeid,
+                    success: command.success === true,
+                    error: command.success === true ? null : String(command.error || "Unable to start print-job watcher")
+                }));
                 if (command.success !== true) {
-                    failSubscriptionsForNode(pending.nodeid, command.error || "Unable to start print-job watcher");
+                    removeSubscriptionsForSession(pending.nodeid, pending.session);
+                    stopWatcherIfUnused(pending.nodeid);
                 } else if (bucketHasEntries(subscriptionBucket(pending.nodeid, false))) {
-                    obj.watcherState[pending.nodeid] = "active";
-                    var startBucket = subscriptionBucket(pending.nodeid, false);
-                    for (var startId in startBucket) {
-                        if (!Object.prototype.hasOwnProperty.call(startBucket, startId)) continue;
-                        sendToSession(startBucket[startId].session, browserMessage("watcherStatus", {
-                            nodeid: pending.nodeid,
-                            success: true,
-                            error: null
-                        }));
-                    }
                     renewWatcherLease(pending.nodeid, true);
                 } else {
                     stopWatcherIfUnused(pending.nodeid);
                 }
-            } else {
-                delete obj.watcherState[pending.nodeid];
             }
             return;
         }
-
-        releaseActiveOperation(pending.nodeid, command.requestId);
 
         var auditRecord = {
             time: new Date().toISOString(),
@@ -1279,14 +909,13 @@ module.exports.printercontrol = function (parent) {
             auditRecord.error = String(command.error || "Operation failed").substring(0, 500);
         }
         obj.debug("plugin:printercontrol", "audit " + JSON.stringify(auditRecord));
-        notifyPendingOperation(
-            pending,
-            command.requestId,
-            command.success === true,
-            command.error || "Operation failed",
-            command.data
-        );
-        dispatchNextRead(pending.nodeid);
+        sendToSession(pending.session, browserMessage("result", {
+            requestId: command.requestId,
+            operation: pending.operation,
+            success: command.success === true,
+            error: command.success === true ? null : String(command.error || "Operation failed"),
+            data: command.data == null ? null : command.data
+        }));
     }
 
     obj.serveraction = function (command, myparent, grandparent) {
