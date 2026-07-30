@@ -1,5 +1,135 @@
 # Changelog
 
+## 0.4.28
+
+- Continue monitoring a job after Windows removes it from `Win32_PrintJob`, using the physical device state exposed by `Win32_Printer`.
+- Keep the job active while the driver reports `Printing`, `Busy`, `Warming up`, `Offline`, or an error, and complete it after the device returns to `Idle`.
+- Show explicitly when the driver does not expose physical progress; in this case a bounded 60-to-180-second safety window prevents the job from disappearing immediately.
+- Disable queue actions for post-Spooler rows because Windows can no longer pause, resume or cancel a job after handing it to the device.
+- Preserve the final completed row for eight seconds before removing it from the live tables.
+
+## 0.4.27
+
+- Wake live monitoring from native Windows Print Spooler job-change notifications instead of relying only on a fixed polling interval.
+- Run a short 25-millisecond `Win32_PrintJob` snapshot burst after a native notification, with a one-second safety snapshot and the existing 100-millisecond fallback when native notification is unavailable.
+- Keep completed jobs visible for eight seconds as `Sent to printer` in both the selected queue and the all-printers live table.
+- Show a temporary generic Spooler activity row when a job completes before Windows exposes enough metadata for a queue snapshot.
+
+## 0.4.26
+
+- Replace the transition history with a real-time `Active print jobs — all printers` table.
+- Add jobs when they enter a Windows queue, update their current status and remove them immediately when they leave the spooler.
+- Keep simultaneous active jobs grouped across every printer without retaining completed history rows.
+- Move the all-printer table below the manually selected `Print jobs` queue.
+- Make event notifications disappear automatically after five seconds.
+- Add iframe document scrolling, bottom clearance and horizontally scrollable tables so MeshCentral's footer and narrow layouts do not hide information.
+
+## 0.4.25
+
+- Add a dedicated `Live print activity — all printers` feed instead of forcing simultaneous events into one selected-printer table.
+- Preserve up to 100 status transitions with time, printer, job ID, document, user, status and driver-reported progress.
+- Display events from multiple printer queues concurrently without switching or replacing the manually selected queue.
+- Replace the coalescing WMI event watcher with a 100-millisecond `Win32_PrintJob` snapshot diff while Live events is explicitly enabled.
+- Emit separate creation, modification and deletion transitions for every detected job, including multiple jobs changed in the same snapshot.
+- Keep the existing live lease, visibility shutdown and 10-minute endpoint safety limit.
+
+## 0.4.24
+
+- Monitor print activity across all queues on the endpoint while Live events is enabled.
+- Automatically switch the print-job panel to the printer that receives a job from Word or another local application.
+- Forward authorized spooler events without filtering them to the printer that was selected when live monitoring started.
+- Reduce the opt-in WMI event sampling window from one second to 200 milliseconds so fast TCP/IP jobs are much less likely to be missed.
+- Retain the existing 10-minute watcher limit, lease checks and event coalescing to bound the additional live-monitoring work.
+
+## 0.4.23
+
+- Distinguish Windows spooler completion from physical printing by displaying `Sent to printer` instead of `Completed`.
+- Explain that physical printing may continue after Windows removes a job from its queue.
+- Rename the page column to `Driver progress` and show printed and remaining pages only from values reported by the Windows driver.
+- Display `Not reported` or `Spooler finished` instead of misleading values such as `0/1` after queue deletion.
+- Keep the most recent spooler hand-off visible for 60 seconds without endpoint polling.
+
+## 0.4.22
+
+- Display a provisional `Windows Test Page` job immediately when **Test** is pressed, including when live events are off.
+- Query the selected print queue immediately after Windows accepts the test-page command.
+- Retry an empty queue only twice, after 750 and 1750 milliseconds, without enabling background polling.
+- Replace the indefinite `Waiting for test-page print events...` state with a clear final result when no active queue item can be observed.
+- Handle virtual printers such as OneNote and interactive-output drivers without leaving the print-job panel blocked.
+- Stop bounded queue discovery as soon as a matching live print-job event arrives.
+- Preserve a matching live event when it arrives before the test-page command response or an in-flight queue check.
+
+## 0.4.21
+
+- Replace the single 120/135-second limit with operation-specific endpoint and server timeouts.
+- Stop a stuck `testPage` PowerShell/CIM request after 30 seconds and release the server lock within a 45-second safety window.
+- Limit print-job reads and job actions to 45/30 seconds on the endpoint, with corresponding server margins.
+- Keep longer safety windows for inventory, printer installation/removal and queue cleanup.
+- Send the operation-specific server limit to the browser countdown for direct, coalesced and queued work.
+- Use the active operation's own timeout when recovering stale endpoint and server locks.
+- Restore cached inventory silently when MeshCentral's periodic device refresh rebuilds the plugin iframe.
+
+## 0.4.20
+
+- Apply the dark Permissions theme immediately when the dialog is opened from MeshCentral's Action selector.
+- Detect both `click` and `change` opening events without a permanent DOM observer.
+- Inspect only compact control attributes and labels instead of reading `textContent` from large page containers on every click.
+- Retry theme application briefly at 0, 50 and 200 milliseconds to cover asynchronous modal creation.
+
+## 0.4.19
+
+- Automatically move an active print-job live subscription to the printer whose **Test** button is pressed.
+- Wait for the server to confirm the updated printer filter before starting the test page.
+- Select the target printer and show its print-job panel while the test page is being monitored.
+- Reuse the existing subscription and endpoint watcher instead of stopping and recreating live monitoring.
+- Discard delayed events and short-lived completed-job entries from the previously monitored printer.
+
+## 0.4.18
+
+- Display a `MM:SS` countdown while a printer operation is running or waiting for the current endpoint operation.
+- Send the authoritative remaining server timeout to the browser for direct, coalesced and queued reads.
+- Restart the countdown when a queued read begins its own endpoint operation.
+- Update the countdown locally once per second without adding MeshCentral or MeshAgent traffic.
+- Stop the timer immediately when the operation completes, fails or the agent goes offline.
+
+## 0.4.17
+
+- Queue inventory and print-job reads per device when another endpoint operation is still finishing instead of returning a blocking error.
+- Dispatch the next queued read after success, failure, agent-send failure or the 135-second server timeout.
+- Show an explicit waiting state in the UI while a read is queued.
+- Keep destructive printer and Spooler changes non-queued so they are never executed later than the user's action.
+- Track the active PowerShell child and automatically terminate and clear an endpoint lock that outlives the normal operation timeout.
+
+## 0.4.16
+
+- Preserve the latest inventory and its in-flight state in the MeshCentral parent window, keyed by node id.
+- Reuse cached inventory when returning to the Printers tab instead of automatically launching another endpoint operation.
+- Let a recreated iframe wait for the existing inventory result, which MeshCentral routes to the current plugin message handler.
+- Expire abandoned shared in-flight markers after 150 seconds, slightly beyond the server operation timeout.
+
+## 0.4.15
+
+- Replace the Printers-page placeholder instead of appending through MeshCentral's `QA()` helper, which could recreate an existing iframe.
+- Guarantee one Printer Control iframe per device page and remove stale or duplicate frames before loading.
+- Coalesce duplicate inventory requests and same-printer queue reads into the already-running endpoint operation.
+- Return the shared result to every waiting browser using its own client request identifier.
+- Self-heal stale per-node operation locks whose pending request no longer exists.
+
+## 0.4.14
+
+- Replace blocking `child.waitExit()` printer operations with asynchronous PowerShell execution so slow printer providers do not block the MeshAgent event loop.
+- Enforce a 120-second endpoint timeout with process termination and bounded stdout/stderr collection.
+- Serialize all normal printer PowerShell operations per endpoint in both MeshCentral and MeshAgent, including mutations initiated by multiple sessions.
+- Add browser-generated request correlation identifiers and ignore stale results.
+- Disable printer actions while an operation is active and add a 30-second permissions/status request timeout.
+- Load the iframe from the generic Plugins tab only when the Printer Control child page is actually visible.
+- Remove generic legacy PowerShell process cleanup; new watcher processes carry a unique Printer Control marker for precise future identification.
+- Keep the watcher hard deadline anchored to its actual start time instead of resetting it for existing watchers.
+- Coalesce rapid non-deletion job events before queue snapshots and bound agent-to-server event payloads.
+- Start one watcher for the first subscription only, cap subscriptions and pending requests, and run subscription cleanup only while subscriptions exist.
+- Require agent-originated results and events to match the authoritative MeshAgent node.
+- Remove the obsolete root `printercontrol.handlebars` file containing the stale 0.4.5 MeshCore module.
+
 ## 0.4.13
 
 - Lazy-load the Printer Control iframe only when the **Printers** device tab is actually opened, so opening a device or starting Desktop no longer triggers hidden printer inventory work.
