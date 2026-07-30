@@ -107,7 +107,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.27 started with native spooler notifications and retained live jobs");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.28 started with post-spooler physical printer monitoring");
     };
 
     obj.server_shutdown = function () {
@@ -1032,7 +1032,10 @@ module.exports.printercontrol = function (parent) {
                     pagesPrinted: typeof job.pagesPrinted === "number" ? job.pagesPrinted : parseInt(job.pagesPrinted, 10) || 0,
                     size: typeof job.size === "number" ? job.size : parseInt(job.size, 10) || 0,
                     submittedTime: typeof job.submittedTime === "string" ? job.submittedTime.substring(0, 64) : null,
-                    recentCompleted: job.recentCompleted === true
+                    recentCompleted: job.recentCompleted === true,
+                    physicalPending: job.physicalPending === true,
+                    physicalStatusReported: job.physicalStatusReported === true,
+                    deviceState: typeof job.deviceState === "string" ? job.deviceState.substring(0, 128) : ""
                 });
             }
         }

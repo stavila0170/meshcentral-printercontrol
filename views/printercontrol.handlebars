@@ -859,6 +859,9 @@ var PrinterControl = (function () {
 
     function formatJobStatus(job, rawStatus, pagesPrinted, totalPages) {
         if (job && job.recentCompleted === true) return "Sent to printer";
+        if (job && job.physicalPending === true) {
+            return String(rawStatus || job.deviceState || "Waiting for printer status");
+        }
         var status = String(rawStatus || "").trim();
         if (pagesPrinted > 0 && totalPages > pagesPrinted &&
                 !/printing|spooling|paused|error|offline|blocked/i.test(status)) {
@@ -869,6 +872,13 @@ var PrinterControl = (function () {
 
     function formatJobProgress(job, pagesPrinted, totalPages) {
         if (job && job.recentCompleted === true) return "Spooler finished";
+        if (job && job.physicalPending === true) {
+            var deviceState = String(job.deviceState || "").trim();
+            if (job.physicalStatusReported === true && deviceState) {
+                return "Device status: " + deviceState + "; physical page count unavailable";
+            }
+            return "Physical page count is not reported by this driver";
+        }
         var printed = Number(pagesPrinted);
         var total = Number(totalPages);
         if (!isFinite(printed) || printed < 0) printed = 0;
@@ -917,6 +927,9 @@ var PrinterControl = (function () {
             actions.className = "actions";
             if (job && job.recentCompleted === true) {
                 actions.textContent = "Sent recently";
+                actions.className += " muted";
+            } else if (job && job.physicalPending === true) {
+                actions.textContent = "Monitoring device";
                 actions.className += " muted";
             } else {
                 actions.appendChild(button("Pause", "manage_jobs", function () { jobAction("pauseJob", jobId); }));

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.28
+
+- Continue monitoring a job after Windows removes it from `Win32_PrintJob`, using the physical device state exposed by `Win32_Printer`.
+- Keep the job active while the driver reports `Printing`, `Busy`, `Warming up`, `Offline`, or an error, and complete it after the device returns to `Idle`.
+- Show explicitly when the driver does not expose physical progress; in this case a bounded 60-to-180-second safety window prevents the job from disappearing immediately.
+- Disable queue actions for post-Spooler rows because Windows can no longer pause, resume or cancel a job after handing it to the device.
+- Preserve the final completed row for eight seconds before removing it from the live tables.
+
 ## 0.4.27
 
 - Wake live monitoring from native Windows Print Spooler job-change notifications instead of relying only on a fixed polling interval.
