@@ -42,6 +42,11 @@
         input,select { width:100%; padding:6px; border:1px solid #999; border-radius:4px; background:#fff; color:#222; }
         .form-actions { margin-top:9px; }
         .muted { color:#666; }
+        .printer-status { font-weight:600; white-space:nowrap; }
+        .printer-status.printing { color:#067647; }
+        .printer-status.warning { color:#b54708; }
+        .printer-status.error { color:#b42318; }
+        .printer-status.idle { color:#475467; }
         @media (prefers-color-scheme:dark) {
             :root { --border:#555; --panel:#292929; }
             body { color:#eee; background:#1e1e1e; }
@@ -84,7 +89,7 @@
     </details>
 
     <section class="panel">
-        <div class="panel-head"><h2>Printers</h2><span class="spacer"></span><span id="printerCount" class="muted"></span></div>
+        <div class="panel-head"><h2>Printers</h2><span id="printerLiveBadge" class="badge unknown">Real-time status starting...</span><span class="spacer"></span><span id="printerCount" class="muted"></span></div>
         <div class="table-wrap">
             <table>
                 <thead><tr><th>Name</th><th>Status</th><th>Driver</th><th>Port</th><th>Jobs</th><th>Shared</th><th>Actions</th></tr></thead>
@@ -94,7 +99,7 @@
     </section>
 
     <section class="panel">
-        <div class="panel-head"><h2 id="jobsTitle">Print jobs</h2><span id="jobsLiveBadge" class="badge unknown">Live events off</span><span class="spacer"></span><button id="jobsLiveToggle" class="small" disabled onclick="PrinterControl.toggleLiveEvents()">Start live events</button><button id="jobsRefresh" class="small" disabled onclick="PrinterControl.reloadJobs()">Refresh jobs</button></div>
+        <div class="panel-head"><h2 id="jobsTitle">Print jobs</h2><span id="jobsLiveBadge" class="badge unknown">Real-time status starting...</span><span class="spacer"></span><button id="jobsLiveToggle" class="small" disabled onclick="PrinterControl.toggleLiveEvents()">Pause real-time status</button><button id="jobsRefresh" class="small" disabled onclick="PrinterControl.reloadJobs()">Refresh jobs</button></div>
         <div class="table-wrap">
             <table>
                 <thead><tr><th>ID</th><th>Document</th><th>User</th><th>Status</th><th>Driver progress</th><th>Size</th><th>Actions</th></tr></thead>
@@ -108,7 +113,7 @@
         <div class="table-wrap">
             <table>
                 <thead><tr><th>Printer</th><th>ID</th><th>Document</th><th>User</th><th>Status</th><th>Driver progress</th><th>Size</th></tr></thead>
-                <tbody id="activityRows"><tr><td colspan="7" class="empty">Start live events to monitor all printer queues.</td></tr></tbody>
+                <tbody id="activityRows"><tr><td colspan="7" class="empty">Real-time monitoring starts automatically while this tab is visible.</td></tr></tbody>
             </table>
         </div>
     </section>
@@ -161,8 +166,6 @@ var PrinterControl = (function () {
         subscriptionActive: false,
         watcherReady: false,
         liveRequested: false,
-        liveSwitchInFlight: false,
-        pendingTestPrinter: null,
         heartbeatTimer: null,
         liveMaxTimer: null,
         eventRefreshTimer: null,
@@ -175,7 +178,11 @@ var PrinterControl = (function () {
         recentLiveJobs: {},
         recentLiveJobTimers: {},
         selectedRecentTimer: null,
-        unloading: false
+        unloading: false,
+        autoLiveEnabled: true,
+        autoLiveSuppressed: false,
+        autoLiveRestartTimer: null,
+        autoLiveRestartAttempts: 0
     };
 
     function hasPermission(name) { return state.permissions.indexOf(name) >= 0; }
@@ -215,10 +222,13 @@ var PrinterControl = (function () {
     }
 
     function setLiveBadge(text, kind) {
-        var badge = document.getElementById("jobsLiveBadge");
-        if (!badge) return;
-        badge.textContent = text;
-        badge.className = "badge " + (kind || "unknown");
+        var badgeIds = ["jobsLiveBadge", "printerLiveBadge"];
+        for (var i = 0; i < badgeIds.length; i++) {
+            var badge = document.getElementById(badgeIds[i]);
+            if (!badge) continue;
+            badge.textContent = text;
+            badge.className = "badge " + (kind || "unknown");
+        }
     }
 
     function sendSubscription(subscribe, printerName) {
@@ -260,10 +270,17 @@ var PrinterControl = (function () {
         if (state.liveMaxTimer != null) { window.clearTimeout(state.liveMaxTimer); state.liveMaxTimer = null; }
     }
 
+    function clearAutoLiveRestartTimer() {
+        if (state.autoLiveRestartTimer != null) {
+            window.clearTimeout(state.autoLiveRestartTimer);
+            state.autoLiveRestartTimer = null;
+        }
+    }
+
     function sendHeartbeat() {
         if (!state.liveRequested || !state.subscriptionActive || !state.subscriptionId) return false;
         if (!isPluginVisible()) {
-            stopLiveEvents("Live monitoring stopped because the Printers tab is no longer visible.", false);
+            stopLiveEvents("Real-time status paused because the Printers tab is no longer visible.", true);
             return false;
         }
         parent.meshserver.send({
@@ -276,13 +293,34 @@ var PrinterControl = (function () {
         return true;
     }
 
+    function scheduleAutomaticLiveRestart(reason) {
+        if (!state.autoLiveEnabled || state.autoLiveSuppressed || state.unloading || !isPluginVisible()) return false;
+        if (!state.online || !hasPermission("can_view") || !state.selectedPrinter) return false;
+        clearAutoLiveRestartTimer();
+        var delays = [1000, 3000, 10000, 30000];
+        var index = Math.min(state.autoLiveRestartAttempts, delays.length - 1);
+        var delay = delays[index];
+        state.autoLiveRestartAttempts++;
+        state.subscriptionId = createSubscriptionId();
+        setLiveBadge("Reconnecting real-time status...", "unknown");
+        state.autoLiveRestartTimer = window.setTimeout(function () {
+            state.autoLiveRestartTimer = null;
+            ensureAutomaticLive();
+        }, delay);
+        if (reason && !state.unloading) setTransientMessage(reason + " Reconnecting automatically...", "error");
+        return true;
+    }
+
     function startLiveTimers() {
         stopLiveTimers();
         sendHeartbeat();
         state.heartbeatTimer = window.setInterval(sendHeartbeat, 15000);
+        // Renew before the independent 10-minute server/endpoint safety limit.
         state.liveMaxTimer = window.setTimeout(function () {
-            if (state.liveRequested) stopLiveEvents("Live monitoring stopped after the 10-minute safety limit. Press Start live events to enable it again.", false);
-        }, 600000);
+            if (!state.liveRequested || state.unloading) return;
+            stopLiveEvents(null, true);
+            scheduleAutomaticLiveRestart(null);
+        }, 570000);
     }
 
     function clearLiveState() {
@@ -291,21 +329,22 @@ var PrinterControl = (function () {
         state.subscriptionActive = false;
         state.watcherReady = false;
         state.subscriptionPrinter = null;
-        state.liveSwitchInFlight = false;
-        state.pendingTestPrinter = null;
-        setLiveBadge("Live events off", "unknown");
+        setLiveBadge(state.autoLiveSuppressed ? "Real-time status paused" : "Real-time status off", "unknown");
         stopActivityFeed();
         updateButtons();
     }
 
-    function startLiveEvents() {
+    function startLiveEvents(automatic) {
         if (!state.selectedPrinter || !state.online || !hasPermission("can_view") || state.liveRequested) return false;
+        if (automatic !== true) state.autoLiveSuppressed = false;
+        if (state.autoLiveSuppressed) return false;
+        clearAutoLiveRestartTimer();
         state.unloading = false;
         state.liveRequested = true;
         state.subscriptionPrinter = state.selectedPrinter;
         state.subscriptionActive = false;
         state.watcherReady = false;
-        setLiveBadge("Starting live events...", "unknown");
+        setLiveBadge("Starting real-time status...", "unknown");
         startActivityFeed();
         updateButtons();
         if (!sendSubscription(true, state.selectedPrinter)) {
@@ -315,18 +354,30 @@ var PrinterControl = (function () {
         return true;
     }
 
+    function ensureAutomaticLive() {
+        if (!state.autoLiveEnabled || state.autoLiveSuppressed || state.unloading) return false;
+        if (!isPluginVisible() || !state.online || !hasPermission("can_view")) return false;
+        if (!state.selectedPrinter && state.inventory && Array.isArray(state.inventory.printers) && state.inventory.printers.length) {
+            state.selectedPrinter = state.inventory.printers[0].name || null;
+        }
+        if (!state.selectedPrinter || state.liveRequested || state.subscriptionActive) return false;
+        return startLiveEvents(true);
+    }
+
     function stopLiveEvents(reason, silent) {
         var printerName = state.subscriptionPrinter || state.selectedPrinter;
         var shouldUnsubscribe = state.subscriptionActive || state.liveRequested || !!state.subscriptionPrinter;
         state.liveRequested = false;
         stopLiveTimers();
-        if (shouldUnsubscribe && state.subscriptionId) sendSubscription(false, printerName);
+        if (shouldUnsubscribe && state.subscriptionId) {
+            sendSubscription(false, printerName);
+            // Ignore delayed unsubscribe replies if monitoring starts again quickly.
+            state.subscriptionId = createSubscriptionId();
+        }
         state.subscriptionActive = false;
         state.watcherReady = false;
         state.subscriptionPrinter = null;
-        state.liveSwitchInFlight = false;
-        state.pendingTestPrinter = null;
-        setLiveBadge("Live events off", "unknown");
+        setLiveBadge(state.autoLiveSuppressed ? "Real-time status paused" : "Real-time status off", "unknown");
         stopActivityFeed();
         updateButtons();
         if (reason && silent !== true && !state.unloading) setMessage(reason);
@@ -334,14 +385,30 @@ var PrinterControl = (function () {
     }
 
     function toggleLiveEvents() {
-        if (state.liveRequested || state.subscriptionActive) return stopLiveEvents("Live monitoring stopped.", false);
-        return startLiveEvents();
+        if (state.liveRequested || state.subscriptionActive) {
+            state.autoLiveSuppressed = true;
+            clearAutoLiveRestartTimer();
+            return stopLiveEvents("Real-time printer status paused.", false);
+        }
+        state.autoLiveSuppressed = false;
+        state.autoLiveRestartAttempts = 0;
+        return startLiveEvents(false);
     }
 
     function unsubscribeJobs() {
         state.unloading = true;
+        clearAutoLiveRestartTimer();
         stopTestPageJobDiscovery();
         return stopLiveEvents(null, true);
+    }
+
+    function handleLiveVisibilityChange() {
+        if (!isPluginVisible()) {
+            if (state.liveRequested || state.subscriptionActive) stopLiveEvents(null, true);
+            return;
+        }
+        state.unloading = false;
+        ensureAutomaticLive();
     }
 
     function clearPendingJobEvents() {
@@ -392,7 +459,7 @@ var PrinterControl = (function () {
             var empty = document.createElement("tr");
             var emptyCell = textCell(empty, state.liveRequested ?
                 "Monitoring all printers — no active print jobs." :
-                "Live monitoring is stopped.");
+                "Real-time monitoring is paused.");
             emptyCell.colSpan = 7;
             emptyCell.className = "empty";
             body.appendChild(empty);
@@ -467,6 +534,7 @@ var PrinterControl = (function () {
     }
 
     function recordActivity(event) {
+        applyLivePrinterStatus(event);
         var jobs = Array.isArray(event.jobs) ? event.jobs : [];
         var active = [];
         for (var i = 0; i < jobs.length; i++) {
@@ -491,23 +559,6 @@ var PrinterControl = (function () {
             delete state.liveJobsByPrinter[key];
         }
         renderActivity();
-    }
-
-    function switchLiveEventsForTest(printerName) {
-        state.selectedPrinter = printerName;
-        state.subscriptionPrinter = printerName;
-        state.subscriptionActive = false;
-        state.liveSwitchInFlight = true;
-        state.pendingTestPrinter = printerName;
-        stopLiveTimers();
-        showPendingTestPageJob(printerName, "Preparing live monitoring...");
-        setLiveBadge("Switching live events...", "unknown");
-        setMessage("Switching live events to " + printerName + " before printing the test page...");
-        updateButtons();
-        if (sendSubscription(true, printerName)) return true;
-        clearLiveState();
-        setMessage("Unable to switch live events to the selected printer.", "error");
-        return false;
     }
 
     function scheduleEventRender(event) {
@@ -615,7 +666,7 @@ var PrinterControl = (function () {
     }
 
     function updateButtons() {
-        var operationBusy = state.activeClientRequestId != null || state.liveSwitchInFlight;
+        var operationBusy = state.activeClientRequestId != null;
         var buttons = document.querySelectorAll("[data-permission]");
         for (var i = 0; i < buttons.length; i++) {
             buttons[i].disabled = operationBusy || !state.online || !hasPermission(buttons[i].getAttribute("data-permission"));
@@ -626,7 +677,7 @@ var PrinterControl = (function () {
         if (liveButton) {
             var liveActive = state.liveRequested || state.subscriptionActive;
             liveButton.disabled = operationBusy || !state.online || !hasPermission("can_view") || !state.selectedPrinter;
-            liveButton.textContent = liveActive ? "Stop live events" : "Start live events";
+            liveButton.textContent = liveActive ? "Pause real-time status" : "Start real-time status";
             liveButton.className = "small" + (liveActive ? " danger" : "");
         }
     }
@@ -722,7 +773,82 @@ var PrinterControl = (function () {
         return value;
     }
 
-    function renderInventory(data) {
+    function printerStatusClass(status) {
+        var value = String(status || "").toLowerCase();
+        if (/error|offline|paper|door open|no toner|not available|blocked|intervention/.test(value)) return "error";
+        if (/paused|warming|waiting|processing|busy/.test(value)) return "warning";
+        if (/printing|spooling|physical/.test(value)) return "printing";
+        return "idle";
+    }
+
+    function canonicalLiveStatus(value) {
+        var textValue = String(value || "").trim();
+        var normalized = textValue.toLowerCase();
+        if (/offline|workoffline|not available/.test(normalized)) return "Offline";
+        if (/paper jam/.test(normalized)) return "Paper Jam";
+        if (/paper out/.test(normalized)) return "Paper Out";
+        if (/door open/.test(normalized)) return "Door Open";
+        if (/no toner|toner empty/.test(normalized)) return "No Toner";
+        if (/error|blocked|attention|intervention/.test(normalized)) return "Error";
+        if (/paused/.test(normalized)) return "Paused";
+        if (/warming/.test(normalized)) return "Warming up";
+        if (/printing|busy|processing|spooling|physical|sent to printer|finishing/.test(normalized)) return "Printing";
+        if (/idle|ready|normal/.test(normalized)) return "Idle";
+        return textValue;
+    }
+
+    function applyLivePrinterStatus(event) {
+        if (!event || !state.inventory || !Array.isArray(state.inventory.printers)) return false;
+        var printerName = String(event.printerName || "");
+        if (!printerName || printerName.toLowerCase() === "windows print spooler") return false;
+        var printer = null;
+        for (var i = 0; i < state.inventory.printers.length; i++) {
+            var candidate = state.inventory.printers[i];
+            if (candidate && String(candidate.name || "").toLowerCase() === printerName.toLowerCase()) {
+                printer = candidate;
+                break;
+            }
+        }
+        if (!printer) return false;
+
+        var jobs = Array.isArray(event.jobs) ? event.jobs : [];
+        var activeJobs = [];
+        var preferredStatus = "";
+        for (var j = 0; j < jobs.length; j++) {
+            var job = jobs[j];
+            if (!job || job.recentCompleted === true) continue;
+            activeJobs.push(job);
+            var deviceState = canonicalLiveStatus(getJobValue(job, ["deviceState", "DeviceState"], ""));
+            var jobState = canonicalLiveStatus(getJobValue(job, ["jobStatus", "JobStatus", "status", "Status"], ""));
+            var candidateStatus = deviceState || jobState;
+            if (/^(Offline|Paper Jam|Paper Out|Door Open|No Toner|Error)$/.test(candidateStatus)) {
+                preferredStatus = candidateStatus;
+                break;
+            }
+            if (!preferredStatus && candidateStatus) preferredStatus = candidateStatus;
+        }
+
+        var eventType = String(event.eventType || "");
+        var eventStatus = canonicalLiveStatus(event.status || "");
+        if (activeJobs.length > 0) {
+            printer.status = preferredStatus && preferredStatus !== "Idle" ? preferredStatus : "Printing";
+        } else if (eventType === "PhysicalPrintingCompletedEvent" || /DeletionEvent$/.test(eventType)) {
+            printer.status = "Idle";
+        } else if (eventStatus) {
+            printer.status = eventStatus;
+        }
+        printer.jobCount = activeJobs.length;
+        printer.liveStatusUpdatedAt = event.timestamp || new Date().toISOString();
+        printer.liveStatus = true;
+
+        var shared = sharedInventory();
+        shared.data = state.inventory;
+        shared.updatedAt = Date.now();
+        renderInventory(state.inventory, true);
+        return true;
+    }
+
+    function renderInventory(data, fromLiveEvent) {
         state.inventory = data || {};
         var spooler = data && data.spooler ? data.spooler.status : "Unknown";
         setSpoolerBadge(spooler);
@@ -742,18 +868,24 @@ var PrinterControl = (function () {
         var body = document.getElementById("printerRows");
         body.textContent = "";
         if (!printers.length) {
+            state.selectedPrinter = null;
+            if (state.liveRequested || state.subscriptionActive) stopLiveEvents(null, true);
+            setLiveBadge("No printers to monitor", "unknown");
             var empty = document.createElement("tr");
             var emptyCell = textCell(empty, "No printers found.");
             emptyCell.colSpan = 7;
             emptyCell.className = "empty";
             body.appendChild(empty);
+            updateButtons();
             return;
         }
 
         printers.forEach(function (printer) {
             var row = document.createElement("tr");
             textCell(row, (printer.default ? "★ " : "") + (printer.name || ""));
-            textCell(row, printer.status || "Unknown");
+            var statusCell = textCell(row, printer.status || "Unknown");
+            statusCell.className = "printer-status " + printerStatusClass(printer.status);
+            if (printer.liveStatusUpdatedAt) statusCell.title = "Updated in real time: " + printer.liveStatusUpdatedAt;
             textCell(row, printer.driverName || "");
             textCell(row, printer.portName || "");
             textCell(row, printer.jobCount || 0);
@@ -766,6 +898,20 @@ var PrinterControl = (function () {
             row.appendChild(actionCell);
             body.appendChild(row);
         });
+
+        var selectedStillExists = false;
+        for (var selectedIndex = 0; selectedIndex < printers.length; selectedIndex++) {
+            if (String(printers[selectedIndex].name || "").toLowerCase() === String(state.selectedPrinter || "").toLowerCase()) {
+                selectedStillExists = true;
+                break;
+            }
+        }
+        if (!selectedStillExists) {
+            state.selectedPrinter = printers[0].name || null;
+            if (state.selectedPrinter) document.getElementById("jobsTitle").textContent = "Print jobs — " + state.selectedPrinter;
+        }
+        updateButtons();
+        if (fromLiveEvent !== true) window.setTimeout(ensureAutomaticLive, 0);
     }
 
     function showJobsPlaceholder(text, isError) {
@@ -948,9 +1094,6 @@ var PrinterControl = (function () {
         }
         var changedPrinter = state.selectedPrinter !== printerName;
         if (changedPrinter && state.testPageJobPrinter) stopTestPageJobDiscovery();
-        if (changedPrinter && (state.liveRequested || state.subscriptionActive)) {
-            stopLiveEvents("Live monitoring stopped because a different printer was selected.", true);
-        }
         state.selectedPrinter = printerName;
         document.getElementById("jobsTitle").textContent = "Print jobs — " + printerName;
         updateButtons();
@@ -958,7 +1101,7 @@ var PrinterControl = (function () {
     }
 
     function testPage(printerName) {
-        if (state.activeClientRequestId != null || state.liveSwitchInFlight) {
+        if (state.activeClientRequestId != null) {
             setMessage("Wait for the current printer operation to finish.");
             return false;
         }
@@ -968,13 +1111,6 @@ var PrinterControl = (function () {
         state.selectedPrinter = printerName;
         showPendingTestPageJob(printerName, "Submitting...");
         updateButtons();
-        var liveActive = state.liveRequested || state.subscriptionActive;
-        if (liveActive) {
-            var monitoredPrinter = state.subscriptionPrinter || state.selectedPrinter || "";
-            if (String(monitoredPrinter).toLowerCase() !== String(printerName).toLowerCase()) {
-                return switchLiveEventsForTest(printerName);
-            }
-        }
         return send("testPage", { printerName: printerName });
     }
 
@@ -1040,6 +1176,7 @@ var PrinterControl = (function () {
                 state.activeClientRequestId = null;
                 state.activeOperation = null;
                 stopOperationTimer();
+                clearAutoLiveRestartTimer();
                 clearLiveState();
                 setSpoolerBadge("Unknown");
                 setMessage("MeshAgent is offline.", "error");
@@ -1074,20 +1211,10 @@ var PrinterControl = (function () {
             state.subscriptionActive = message.success === true && message.active === true && state.liveRequested;
             if (state.subscriptionActive) {
                 state.subscriptionPrinter = message.printerName || state.selectedPrinter;
-                setLiveBadge(state.watcherReady ? "Live events on" : "Starting live events...", state.watcherReady ? "ok" : "unknown");
+                setLiveBadge(state.watcherReady ? "Real-time status on" : "Starting real-time status...", state.watcherReady ? "ok" : "unknown");
                 startLiveTimers();
             } else if (!state.liveRequested) {
                 clearLiveState();
-            }
-            var pendingTestPrinter = state.pendingTestPrinter;
-            if (state.subscriptionActive && pendingTestPrinter &&
-                    String(state.subscriptionPrinter || "").toLowerCase() === String(pendingTestPrinter).toLowerCase()) {
-                state.pendingTestPrinter = null;
-                state.liveSwitchInFlight = false;
-                showPendingTestPageJob(pendingTestPrinter, "Submitting...");
-                updateButtons();
-                send("testPage", { printerName: pendingTestPrinter });
-                return;
             }
             updateButtons();
             return;
@@ -1096,16 +1223,13 @@ var PrinterControl = (function () {
         if (message.type === "watcherStatus") {
             if (message.success === true && state.liveRequested && state.subscriptionActive) {
                 state.watcherReady = true;
-                setLiveBadge("Live events on", "ok");
+                setLiveBadge("Real-time status on", "ok");
+                state.autoLiveRestartAttempts = 0;
             } else if (message.success !== true) {
-                stopLiveTimers();
-                state.liveRequested = false;
-                state.watcherReady = false;
-                state.subscriptionActive = false;
-                state.subscriptionPrinter = null;
-                setLiveBadge("Live events unavailable", "bad");
-                updateButtons();
-                if (!state.unloading) setMessage(message.error || "Automatic print-job events are unavailable. Use Refresh jobs.", "error");
+                var watcherError = message.error || "Automatic printer-status events are unavailable.";
+                clearLiveState();
+                setLiveBadge("Real-time status unavailable", "bad");
+                scheduleAutomaticLiveRestart(watcherError);
             }
             return;
         }
@@ -1113,25 +1237,27 @@ var PrinterControl = (function () {
         if (message.type === "heartbeat") {
             if (message.subscriptionId !== state.subscriptionId) return;
             if (message.success !== true) {
+                var heartbeatError = message.error || "Real-time monitoring subscription expired.";
                 clearLiveState();
-                if (!state.unloading) setMessage(message.error || "Live monitoring subscription expired.", "error");
+                scheduleAutomaticLiveRestart(heartbeatError);
             }
             return;
         }
 
         if (message.type === "subscriptionExpired") {
             if (message.subscriptionId !== state.subscriptionId) return;
+            var expiryReason = message.reason || "Real-time monitoring expired.";
             clearLiveState();
-            if (!state.unloading) setMessage(message.reason || "Live monitoring expired. Press Start live events to enable it again.", "error");
+            scheduleAutomaticLiveRestart(expiryReason);
             return;
         }
 
         if (message.type === "jobEvent") {
-            if (message.subscriptionId !== state.subscriptionId || !state.selectedPrinter || !message.event) return;
+            if (message.subscriptionId !== state.subscriptionId || !message.event) return;
             var eventPrinter = String(message.event.printerName || "");
             if (!eventPrinter) return;
             recordActivity(message.event);
-            if (eventPrinter.toLowerCase() !== String(state.selectedPrinter).toLowerCase()) {
+            if (!state.selectedPrinter || eventPrinter.toLowerCase() !== String(state.selectedPrinter).toLowerCase()) {
                 return;
             }
             if (state.activeOperation === "testPage" ||
@@ -1211,10 +1337,13 @@ var PrinterControl = (function () {
                 showJobsPlaceholder("The test page could not be submitted: " +
                     (message.error || "Printer operation failed."), true);
             } else if (message.operation === "subscribeJobs" || message.operation === "heartbeatJobs") {
+                var liveOperationError = message.error || "Real-time printer status is unavailable.";
                 clearLiveState();
-                setLiveBadge("Live events unavailable", "bad");
+                setLiveBadge("Real-time status unavailable", "bad");
+                suppressErrorMessage = scheduleAutomaticLiveRestart(liveOperationError);
             } else if (message.operation === "unsubscribeJobs") {
-                clearLiveState();
+                if (!state.liveRequested && !state.subscriptionActive) clearLiveState();
+                suppressErrorMessage = true;
             } else if (message.operation === "spoolerStart" || message.operation === "spoolerStop" || message.operation === "spoolerRestart") {
                 setSpoolerBadge("Unknown");
             }
@@ -1342,6 +1471,7 @@ var PrinterControl = (function () {
     function initialize() {
         if (!state.subscriptionId) state.subscriptionId = createSubscriptionId();
         state.unloading = false;
+        state.autoLiveSuppressed = false;
         return requestPermissions();
     }
 
@@ -1359,7 +1489,8 @@ var PrinterControl = (function () {
         toggleLiveEvents: toggleLiveEvents,
         startLiveEvents: startLiveEvents,
         stopLiveEvents: stopLiveEvents,
-        checkLiveVisibility: function () { if (state.liveRequested && !isPluginVisible()) stopLiveEvents("Live monitoring stopped because the Printers tab is no longer visible.", false); },
+        checkLiveVisibility: handleLiveVisibilityChange,
+        ensureAutomaticLive: ensureAutomaticLive,
         unsubscribeJobs: unsubscribeJobs
     };
 })();

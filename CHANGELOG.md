@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.29
+
+- Start real-time printer monitoring automatically whenever the Printers tab is visible and the user has view permission.
+- Update each printer row immediately from spooler and physical-device events, including effective `Printing`, `Paused`, `Offline`, `Error`, `Warming up` or `Idle` status and the active-job count.
+- Keep one endpoint watcher for all printer queues when switching the selected printer or printing a test page.
+- Pause monitoring when the tab is hidden, resume it automatically when visible again, and renew the subscription before the independent 10-minute safety limit.
+- Retain manual pause/start controls and the event-driven design without continuous browser or inventory polling.
+
 ## 0.4.28
 
 - Continue monitoring a job after Windows removes it from `Win32_PrintJob`, using the physical device state exposed by `Win32_Printer`.
