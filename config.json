@@ -3,7 +3,7 @@
   "shortName": "printercontrol",
   "version": "0.4.31",
   "author": "Custom MeshCentral Integration",
-  "description": "Real-time print jobs across all endpoint printers, with pause, resume and cancel controls.",
+  "description": "Secure Windows printer management with a single automatic real-time print-jobs table aggregated across all endpoint printers.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
   "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",
