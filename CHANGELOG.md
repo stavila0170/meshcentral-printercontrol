@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.34
+
+- Keep a print-job row visible with status **Printing** after Windows transfers the job from Spooler to the printer buffer.
+- Prefer the physical `Win32_Printer` transition from Printing/Busy back to Idle before removing the row.
+- Use a bounded page-count estimate only when the driver does not expose reliable physical progress, and show that the duration is estimated.
+- Keep multiple buffered jobs in order by extending the estimate per printer rather than removing all rows immediately.
+- Disable Pause, Resume and Cancel after Spooler handoff because Windows no longer owns the job.
+- Restart the live watcher after **Clear queue** so all shadow rows are removed, while warning that pages already buffered inside the printer may continue printing.
+
 ## 0.4.33
 
 - Show only jobs that are currently active in the Windows Print Spooler.
