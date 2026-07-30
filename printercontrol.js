@@ -107,7 +107,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.29 started with automatic real-time printer status monitoring");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.30 started with tab-bound automatic real-time printer status monitoring");
     };
 
     obj.server_shutdown = function () {
@@ -374,17 +374,43 @@ module.exports.printercontrol = function (parent) {
             currentIframe.style.height = "760px";
             currentIframe.style.overflow = "auto";
             currentIframe.src = "/pluginadmin.ashx?pin=printercontrol&user=1&nodeid=" + currentNodeKey;
+            currentIframe.onload = function () {
+                if (!pageIsVisible(currentPage)) return;
+                try {
+                    if (currentIframe.contentWindow && currentIframe.contentWindow.PrinterControl &&
+                            typeof currentIframe.contentWindow.PrinterControl.activateLiveTab === "function") {
+                        currentIframe.contentWindow.PrinterControl.activateLiveTab();
+                    }
+                } catch (ignoreLoad) { }
+            };
             currentPage.appendChild(currentIframe);
             return true;
+        };
+
+        window.__printerControlActivateLive = function () {
+            var currentPage = document.getElementById("pluginPrinterControl");
+            var iframe = document.getElementById("pluginIframePrinterControl");
+            if (!currentPage || !iframe || !pageIsVisible(currentPage)) return false;
+            try {
+                if (iframe.contentWindow && iframe.contentWindow.PrinterControl &&
+                        typeof iframe.contentWindow.PrinterControl.activateLiveTab === "function") {
+                    iframe.contentWindow.PrinterControl.activateLiveTab();
+                    return true;
+                }
+            } catch (ignore) { }
+            return false;
         };
 
         window.__printerControlStopLive = function () {
             var iframe = document.getElementById("pluginIframePrinterControl");
             if (!iframe) return;
             try {
-                if (iframe.contentWindow && iframe.contentWindow.PrinterControl &&
-                        typeof iframe.contentWindow.PrinterControl.stopLiveEvents === "function") {
-                    iframe.contentWindow.PrinterControl.stopLiveEvents(null, true);
+                if (iframe.contentWindow && iframe.contentWindow.PrinterControl) {
+                    if (typeof iframe.contentWindow.PrinterControl.deactivateLiveTab === "function") {
+                        iframe.contentWindow.PrinterControl.deactivateLiveTab();
+                    } else if (typeof iframe.contentWindow.PrinterControl.stopLiveEvents === "function") {
+                        iframe.contentWindow.PrinterControl.stopLiveEvents(null, true);
+                    }
                 }
             } catch (ignore) { }
         };
@@ -405,13 +431,15 @@ module.exports.printercontrol = function (parent) {
                 if (targetId === "p19ph-pluginPrinterControl") {
                     window.setTimeout(function () {
                         if (typeof window.__printerControlLoadCurrent === "function") window.__printerControlLoadCurrent(true);
+                        if (typeof window.__printerControlActivateLive === "function") window.__printerControlActivateLive();
                     }, 0);
                 } else if (targetId === "MainDevPlugins") {
                     // The generic Plugins tab can contain several extensions.
                     // Wait for MeshCentral to reveal the persisted child tab and
-                    // load only when Printer Control is actually the visible page.
+                    // activate monitoring only when Printer Control is the visible page.
                     window.setTimeout(function () {
                         if (typeof window.__printerControlLoadCurrent === "function") window.__printerControlLoadCurrent(false);
+                        if (typeof window.__printerControlActivateLive === "function") window.__printerControlActivateLive();
                     }, 0);
                 } else if (targetId.indexOf("MainDev") === 0 || targetId.indexOf("p19ph-") === 0) {
                     if (typeof window.__printerControlStopLive === "function") window.__printerControlStopLive();
@@ -447,8 +475,10 @@ module.exports.printercontrol = function (parent) {
                 }
             }
 
-            // If the user was already on the persisted Printers page, load now.
+            // If the user was already on the persisted Printers page, load and
+            // activate monitoring only when that top-level page is actually visible.
             if (typeof window.__printerControlLoadCurrent === "function") window.__printerControlLoadCurrent(false);
+            if (typeof window.__printerControlActivateLive === "function") window.__printerControlActivateLive();
         }, 0);
     };
 

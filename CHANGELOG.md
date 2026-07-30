@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.30
+
+- Keep real-time printer monitoring permanently enabled while the top-level **Printers** tab is selected.
+- Remove the manual pause/start control so queue and printer status cannot be disabled accidentally inside the plugin.
+- Stop monitoring only when the user changes to another main MeshCentral device tab such as **Desktop**, **Terminal**, **Files** or another plugin page.
+- Do not stop monitoring when the browser is minimized, the browser tab becomes hidden, a printer is selected, a job is refreshed, or another control inside Printer Control is used.
+- Restart the live subscription automatically after lease or 10-minute safety renewal while the **Printers** tab remains active.
+
 ## 0.4.29
 
 - Start real-time printer monitoring automatically whenever the Printers tab is visible and the user has view permission.

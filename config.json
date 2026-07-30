@@ -1,7 +1,7 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.29",
+  "version": "0.4.30",
   "author": "Custom MeshCentral Integration",
   "description": "Secure Windows printer management with automatic real-time printer status and active jobs across all endpoint printers.",
   "hasAdminPanel": false,

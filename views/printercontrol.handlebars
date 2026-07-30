@@ -99,7 +99,7 @@
     </section>
 
     <section class="panel">
-        <div class="panel-head"><h2 id="jobsTitle">Print jobs</h2><span id="jobsLiveBadge" class="badge unknown">Real-time status starting...</span><span class="spacer"></span><button id="jobsLiveToggle" class="small" disabled onclick="PrinterControl.toggleLiveEvents()">Pause real-time status</button><button id="jobsRefresh" class="small" disabled onclick="PrinterControl.reloadJobs()">Refresh jobs</button></div>
+        <div class="panel-head"><h2 id="jobsTitle">Print jobs</h2><span id="jobsLiveBadge" class="badge unknown">Real-time status starting...</span><span class="spacer"></span><button id="jobsRefresh" class="small" disabled onclick="PrinterControl.reloadJobs()">Refresh jobs</button></div>
         <div class="table-wrap">
             <table>
                 <thead><tr><th>ID</th><th>Document</th><th>User</th><th>Status</th><th>Driver progress</th><th>Size</th><th>Actions</th></tr></thead>
@@ -179,8 +179,8 @@ var PrinterControl = (function () {
         recentLiveJobTimers: {},
         selectedRecentTimer: null,
         unloading: false,
+        topTabActive: true,
         autoLiveEnabled: true,
-        autoLiveSuppressed: false,
         autoLiveRestartTimer: null,
         autoLiveRestartAttempts: 0
     };
@@ -246,25 +246,6 @@ var PrinterControl = (function () {
         return true;
     }
 
-    function isPluginVisible() {
-        try {
-            if (document.hidden || (parent.document && parent.document.hidden)) return false;
-            var element = window.frameElement;
-            if (!element) return true;
-            var current = element;
-            while (current && current.nodeType === 1) {
-                if (current.hidden === true) return false;
-                var style = parent.getComputedStyle(current);
-                if (!style || style.display === "none" || style.visibility === "hidden" || parseFloat(style.opacity || "1") === 0) return false;
-                current = current.parentElement;
-            }
-            var rect = element.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-        } catch (ignore) {
-            return !document.hidden;
-        }
-    }
-
     function stopLiveTimers() {
         if (state.heartbeatTimer != null) { window.clearInterval(state.heartbeatTimer); state.heartbeatTimer = null; }
         if (state.liveMaxTimer != null) { window.clearTimeout(state.liveMaxTimer); state.liveMaxTimer = null; }
@@ -278,11 +259,7 @@ var PrinterControl = (function () {
     }
 
     function sendHeartbeat() {
-        if (!state.liveRequested || !state.subscriptionActive || !state.subscriptionId) return false;
-        if (!isPluginVisible()) {
-            stopLiveEvents("Real-time status paused because the Printers tab is no longer visible.", true);
-            return false;
-        }
+        if (!state.topTabActive || !state.liveRequested || !state.subscriptionActive || !state.subscriptionId) return false;
         parent.meshserver.send({
             action: "plugin",
             plugin: "printercontrol",
@@ -294,7 +271,7 @@ var PrinterControl = (function () {
     }
 
     function scheduleAutomaticLiveRestart(reason) {
-        if (!state.autoLiveEnabled || state.autoLiveSuppressed || state.unloading || !isPluginVisible()) return false;
+        if (!state.autoLiveEnabled || state.unloading || !state.topTabActive) return false;
         if (!state.online || !hasPermission("can_view") || !state.selectedPrinter) return false;
         clearAutoLiveRestartTimer();
         var delays = [1000, 3000, 10000, 30000];
@@ -329,15 +306,13 @@ var PrinterControl = (function () {
         state.subscriptionActive = false;
         state.watcherReady = false;
         state.subscriptionPrinter = null;
-        setLiveBadge(state.autoLiveSuppressed ? "Real-time status paused" : "Real-time status off", "unknown");
+        setLiveBadge(state.topTabActive ? "Real-time status off" : "Real-time status inactive", "unknown");
         stopActivityFeed();
         updateButtons();
     }
 
     function startLiveEvents(automatic) {
-        if (!state.selectedPrinter || !state.online || !hasPermission("can_view") || state.liveRequested) return false;
-        if (automatic !== true) state.autoLiveSuppressed = false;
-        if (state.autoLiveSuppressed) return false;
+        if (!state.topTabActive || !state.selectedPrinter || !state.online || !hasPermission("can_view") || state.liveRequested) return false;
         clearAutoLiveRestartTimer();
         state.unloading = false;
         state.liveRequested = true;
@@ -355,8 +330,8 @@ var PrinterControl = (function () {
     }
 
     function ensureAutomaticLive() {
-        if (!state.autoLiveEnabled || state.autoLiveSuppressed || state.unloading) return false;
-        if (!isPluginVisible() || !state.online || !hasPermission("can_view")) return false;
+        if (!state.autoLiveEnabled || state.unloading || !state.topTabActive) return false;
+        if (!state.online || !hasPermission("can_view")) return false;
         if (!state.selectedPrinter && state.inventory && Array.isArray(state.inventory.printers) && state.inventory.printers.length) {
             state.selectedPrinter = state.inventory.printers[0].name || null;
         }
@@ -377,38 +352,38 @@ var PrinterControl = (function () {
         state.subscriptionActive = false;
         state.watcherReady = false;
         state.subscriptionPrinter = null;
-        setLiveBadge(state.autoLiveSuppressed ? "Real-time status paused" : "Real-time status off", "unknown");
+        setLiveBadge(state.topTabActive ? "Real-time status off" : "Real-time status inactive", "unknown");
         stopActivityFeed();
         updateButtons();
         if (reason && silent !== true && !state.unloading) setMessage(reason);
         return shouldUnsubscribe;
     }
 
-    function toggleLiveEvents() {
-        if (state.liveRequested || state.subscriptionActive) {
-            state.autoLiveSuppressed = true;
-            clearAutoLiveRestartTimer();
-            return stopLiveEvents("Real-time printer status paused.", false);
-        }
-        state.autoLiveSuppressed = false;
+    function activateLiveTab() {
+        state.unloading = false;
+        state.topTabActive = true;
         state.autoLiveRestartAttempts = 0;
-        return startLiveEvents(false);
+        return ensureAutomaticLive();
+    }
+
+    function deactivateLiveTab() {
+        state.topTabActive = false;
+        clearAutoLiveRestartTimer();
+        if (state.liveRequested || state.subscriptionActive || state.subscriptionPrinter) {
+            return stopLiveEvents(null, true);
+        }
+        setLiveBadge("Real-time status inactive", "unknown");
+        stopActivityFeed();
+        updateButtons();
+        return false;
     }
 
     function unsubscribeJobs() {
         state.unloading = true;
+        state.topTabActive = false;
         clearAutoLiveRestartTimer();
         stopTestPageJobDiscovery();
         return stopLiveEvents(null, true);
-    }
-
-    function handleLiveVisibilityChange() {
-        if (!isPluginVisible()) {
-            if (state.liveRequested || state.subscriptionActive) stopLiveEvents(null, true);
-            return;
-        }
-        state.unloading = false;
-        ensureAutomaticLive();
     }
 
     function clearPendingJobEvents() {
@@ -673,13 +648,6 @@ var PrinterControl = (function () {
         }
         document.getElementById("refreshBtn").disabled = operationBusy || !hasPermission("can_view");
         document.getElementById("jobsRefresh").disabled = operationBusy || !state.online || !hasPermission("can_view") || !state.selectedPrinter;
-        var liveButton = document.getElementById("jobsLiveToggle");
-        if (liveButton) {
-            var liveActive = state.liveRequested || state.subscriptionActive;
-            liveButton.disabled = operationBusy || !state.online || !hasPermission("can_view") || !state.selectedPrinter;
-            liveButton.textContent = liveActive ? "Pause real-time status" : "Start real-time status";
-            liveButton.className = "small" + (liveActive ? " danger" : "");
-        }
     }
 
     function setSpoolerBadge(status) {
@@ -1471,7 +1439,7 @@ var PrinterControl = (function () {
     function initialize() {
         if (!state.subscriptionId) state.subscriptionId = createSubscriptionId();
         state.unloading = false;
-        state.autoLiveSuppressed = false;
+        state.topTabActive = true;
         return requestPermissions();
     }
 
@@ -1486,10 +1454,10 @@ var PrinterControl = (function () {
         clearQueue: clearQueue,
         addTcpPrinter: addTcpPrinter,
         manualRefresh: manualRefresh,
-        toggleLiveEvents: toggleLiveEvents,
         startLiveEvents: startLiveEvents,
         stopLiveEvents: stopLiveEvents,
-        checkLiveVisibility: handleLiveVisibilityChange,
+        activateLiveTab: activateLiveTab,
+        deactivateLiveTab: deactivateLiveTab,
         ensureAutomaticLive: ensureAutomaticLive,
         unsubscribeJobs: unsubscribeJobs
     };
@@ -1503,7 +1471,6 @@ function printerControlOnLoad() {
     PrinterControl.initialize();
     window.addEventListener("pagehide", PrinterControl.unsubscribeJobs);
     window.addEventListener("beforeunload", PrinterControl.unsubscribeJobs);
-    document.addEventListener("visibilitychange", PrinterControl.checkLiveVisibility);
 }
 </script>
 </body>
