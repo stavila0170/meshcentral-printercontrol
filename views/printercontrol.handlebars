@@ -6,7 +6,8 @@
     <style>
         :root { color-scheme: light dark; --border:#b8b8b8; --panel:#f5f6f7; --danger:#b42318; --ok:#067647; --accent:#1769aa; }
         * { box-sizing:border-box; }
-        body { margin:0; padding:12px; font:13px "Segoe UI",Arial,sans-serif; color:#222; background:#fff; }
+        html { width:100%; height:100%; overflow:auto; }
+        body { width:100%; min-width:0; min-height:100%; margin:0; padding:12px 12px 72px; overflow:auto; font:13px "Segoe UI",Arial,sans-serif; color:#222; background:#fff; }
         .toolbar,.panel-head,.actions { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
         .toolbar { padding:10px; border:1px solid var(--border); background:var(--panel); border-radius:6px; }
         .toolbar .spacer { flex:1; }
@@ -27,9 +28,9 @@
         .panel-head { padding:9px 10px; background:var(--panel); border-bottom:1px solid var(--border); }
         .panel-head h2 { margin:0; font-size:15px; }
         .panel-head .spacer { flex:1; }
-        .table-wrap { max-height:420px; overflow:auto; }
-        table { width:100%; border-collapse:collapse; }
-        th,td { padding:7px 8px; border-bottom:1px solid #ddd; text-align:left; vertical-align:middle; }
+        .table-wrap { width:100%; max-width:100%; max-height:420px; overflow:auto; }
+        table { width:100%; min-width:860px; border-collapse:collapse; }
+        th,td { padding:7px 8px; border-bottom:1px solid #ddd; text-align:left; vertical-align:middle; overflow-wrap:anywhere; }
         th { position:sticky; top:0; z-index:1; background:#eceff2; }
         tbody tr:hover { background:#f7faff; }
         .empty { padding:20px; color:#666; text-align:center; }
@@ -92,22 +93,22 @@
         </div>
     </section>
 
-    <section id="activityPanel" class="panel" hidden>
-        <div class="panel-head"><h2>Live print activity — all printers</h2><span id="activityBadge" class="badge unknown">Stopped</span><span class="spacer"></span><span id="activityCount" class="muted"></span><button class="small" onclick="PrinterControl.clearActivity()">Clear activity</button></div>
-        <div class="table-wrap">
-            <table>
-                <thead><tr><th>Time</th><th>Printer</th><th>ID</th><th>Document</th><th>User</th><th>Status transition</th><th>Driver progress</th></tr></thead>
-                <tbody id="activityRows"><tr><td colspan="7" class="empty">Start live events to monitor all printer queues.</td></tr></tbody>
-            </table>
-        </div>
-    </section>
-
     <section class="panel">
         <div class="panel-head"><h2 id="jobsTitle">Print jobs</h2><span id="jobsLiveBadge" class="badge unknown">Live events off</span><span class="spacer"></span><button id="jobsLiveToggle" class="small" disabled onclick="PrinterControl.toggleLiveEvents()">Start live events</button><button id="jobsRefresh" class="small" disabled onclick="PrinterControl.reloadJobs()">Refresh jobs</button></div>
         <div class="table-wrap">
             <table>
                 <thead><tr><th>ID</th><th>Document</th><th>User</th><th>Status</th><th>Driver progress</th><th>Size</th><th>Actions</th></tr></thead>
                 <tbody id="jobRows"><tr><td colspan="7" class="empty">Select a printer to view its queue.</td></tr></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section id="activityPanel" class="panel" hidden>
+        <div class="panel-head"><h2>Active print jobs — all printers</h2><span id="activityBadge" class="badge unknown">Stopped</span><span class="spacer"></span><span id="activityCount" class="muted"></span></div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Printer</th><th>ID</th><th>Document</th><th>User</th><th>Status</th><th>Driver progress</th><th>Size</th></tr></thead>
+                <tbody id="activityRows"><tr><td colspan="7" class="empty">Start live events to monitor all printer queues.</td></tr></tbody>
             </table>
         </div>
     </section>
@@ -134,7 +135,6 @@ var PrinterControl = (function () {
         clearQueue: 105000
     };
     var TEST_PAGE_JOB_RETRY_DELAYS_MS = [750, 1750];
-    var MAX_ACTIVITY_ROWS = 100;
     var localSharedInventory = { data: null, pending: false, pendingAt: 0, updatedAt: 0 };
     var state = {
         nodeid: new URLSearchParams(window.location.search).get("nodeid"),
@@ -166,15 +166,12 @@ var PrinterControl = (function () {
         heartbeatTimer: null,
         liveMaxTimer: null,
         eventRefreshTimer: null,
-        recentCompletedTimer: null,
-        recentCompletedToken: 0,
         pendingJobEvent: null,
         testPageJobPrinter: null,
         testPageJobRetryIndex: 0,
         testPageJobRetryTimer: null,
         testPageEventPrinter: null,
-        activityHistory: [],
-        activityFingerprint: null,
+        liveJobsByPrinter: {},
         unloading: false
     };
 
@@ -346,14 +343,9 @@ var PrinterControl = (function () {
 
     function clearPendingJobEvents() {
         state.pendingJobEvent = null;
-        state.recentCompletedToken++;
         if (state.eventRefreshTimer != null) {
             window.clearTimeout(state.eventRefreshTimer);
             state.eventRefreshTimer = null;
-        }
-        if (state.recentCompletedTimer != null) {
-            window.clearTimeout(state.recentCompletedTimer);
-            state.recentCompletedTimer = null;
         }
     }
 
@@ -362,100 +354,81 @@ var PrinterControl = (function () {
         var body = document.getElementById("activityRows");
         panel.hidden = false;
         body.textContent = "";
+        var active = [];
+        for (var key in state.liveJobsByPrinter) {
+            if (!Object.prototype.hasOwnProperty.call(state.liveJobsByPrinter, key)) continue;
+            var bucket = state.liveJobsByPrinter[key];
+            if (!bucket || !Array.isArray(bucket.jobs)) continue;
+            for (var i = 0; i < bucket.jobs.length; i++) {
+                active.push({ printerName: bucket.printerName, job: bucket.jobs[i] });
+            }
+        }
+        active.sort(function (a, b) {
+            var printerCompare = String(a.printerName).localeCompare(String(b.printerName));
+            if (printerCompare !== 0) return printerCompare;
+            return Number(getJobValue(a.job, ["id", "Id", "ID"], 0)) -
+                Number(getJobValue(b.job, ["id", "Id", "ID"], 0));
+        });
         document.getElementById("activityCount").textContent =
-            state.activityHistory.length ? state.activityHistory.length + " transition(s)" : "";
-        if (!state.activityHistory.length) {
+            active.length ? active.length + " active job(s)" : "0 active jobs";
+        if (!active.length) {
             var empty = document.createElement("tr");
             var emptyCell = textCell(empty, state.liveRequested ?
-                "Monitoring every printer queue on this endpoint..." :
-                "No print activity captured in this live session.");
+                "Monitoring all printers — no active print jobs." :
+                "Live monitoring is stopped.");
             emptyCell.colSpan = 7;
             emptyCell.className = "empty";
             body.appendChild(empty);
             return;
         }
-        state.activityHistory.forEach(function (entry) {
+        active.forEach(function (entry) {
+            var job = entry.job;
+            var pagesPrinted = Number(getJobValue(job, ["pagesPrinted", "PagesPrinted"], 0));
+            var totalPages = Number(getJobValue(job, ["totalPages", "TotalPages"], 0));
+            var rawStatus = getJobValue(job, ["jobStatus", "JobStatus", "status", "Status"], "");
             var row = document.createElement("tr");
-            textCell(row, entry.time);
             textCell(row, entry.printerName);
-            textCell(row, entry.jobId);
-            textCell(row, entry.documentName);
-            textCell(row, entry.userName);
-            textCell(row, entry.status);
-            textCell(row, entry.progress);
+            textCell(row, getJobValue(job, ["id", "Id", "ID", "jobId", "JobId"], ""));
+            textCell(row, getJobValue(job, ["documentName", "DocumentName", "document", "Document"], ""));
+            textCell(row, getJobValue(job, ["userName", "UserName", "user", "User"], ""));
+            textCell(row, formatJobStatus(job, rawStatus, pagesPrinted, totalPages));
+            textCell(row, formatJobProgress(job, pagesPrinted, totalPages));
+            textCell(row, getJobValue(job, ["size", "Size", "jobSize", "JobSize"], ""));
             body.appendChild(row);
         });
     }
 
-    function clearActivity() {
-        state.activityHistory = [];
-        state.activityFingerprint = null;
-        renderActivity();
-    }
-
     function startActivityFeed() {
-        state.activityHistory = [];
-        state.activityFingerprint = null;
+        state.liveJobsByPrinter = {};
         document.getElementById("activityPanel").hidden = false;
         var badge = document.getElementById("activityBadge");
-        badge.textContent = "Monitoring";
+        badge.textContent = "Live";
         badge.className = "badge ok";
         renderActivity();
     }
 
     function stopActivityFeed() {
+        state.liveJobsByPrinter = {};
         var badge = document.getElementById("activityBadge");
         badge.textContent = "Stopped";
         badge.className = "badge unknown";
-        if (!document.getElementById("activityPanel").hidden) renderActivity();
+        document.getElementById("activityPanel").hidden = true;
     }
 
     function recordActivity(event) {
         var jobs = Array.isArray(event.jobs) ? event.jobs : [];
-        var target = null;
+        var active = [];
         for (var i = 0; i < jobs.length; i++) {
-            var candidateId = getJobValue(jobs[i], ["id", "Id", "ID", "jobId", "JobId"], 0);
-            if (Number(candidateId) === Number(event.jobId)) {
-                target = jobs[i];
-                break;
-            }
+            if (!jobs[i] || jobs[i].recentCompleted === true) continue;
+            active.push(jobs[i]);
         }
-        if (!target && jobs.length === 1) target = jobs[0];
-        if (!target) {
-            target = {
-                id: event.jobId,
-                documentName: event.document,
-                userName: event.owner,
-                jobStatus: event.status,
-                totalPages: 0,
-                pagesPrinted: 0,
-                recentCompleted: String(event.eventType || "").indexOf("Deletion") >= 0
-            };
+        var printerName = String(event.printerName || "");
+        var key = printerName.toLowerCase();
+        if (active.length) {
+            state.liveJobsByPrinter[key] = { printerName: printerName, jobs: active };
+        } else {
+            delete state.liveJobsByPrinter[key];
         }
-        var pagesPrinted = Number(getJobValue(target, ["pagesPrinted", "PagesPrinted"], 0));
-        var totalPages = Number(getJobValue(target, ["totalPages", "TotalPages"], 0));
-        var rawStatus = getJobValue(target, ["jobStatus", "JobStatus", "status", "Status"], event.status || "");
-        var status = formatJobStatus(target, rawStatus, pagesPrinted, totalPages);
-        var eventName = String(event.eventType || "");
-        if (eventName.indexOf("Creation") >= 0 && !/queued|spooling|printing/i.test(status)) {
-            status = "Detected — " + status;
-        } else if (eventName.indexOf("Modification") >= 0 && status === "Queued") {
-            status = "Queue updated";
-        }
-        var entry = {
-            time: new Date(event.timestamp || Date.now()).toLocaleTimeString(),
-            printerName: String(event.printerName || ""),
-            jobId: getJobValue(target, ["id", "Id", "ID", "jobId", "JobId"], event.jobId || ""),
-            documentName: getJobValue(target, ["documentName", "DocumentName", "document", "Document"], event.document || ""),
-            userName: getJobValue(target, ["userName", "UserName", "user", "User"], event.owner || ""),
-            status: status,
-            progress: formatJobProgress(target, pagesPrinted, totalPages)
-        };
-        var fingerprint = [entry.printerName, entry.jobId, eventName, entry.status, entry.progress].join("|");
-        if (fingerprint === state.activityFingerprint) return;
-        state.activityFingerprint = fingerprint;
-        state.activityHistory.unshift(entry);
-        if (state.activityHistory.length > MAX_ACTIVITY_ROWS) state.activityHistory.length = MAX_ACTIVITY_ROWS;
         renderActivity();
     }
 
@@ -485,36 +458,17 @@ var PrinterControl = (function () {
             state.pendingJobEvent = null;
             if (!latest || !state.selectedPrinter) return;
             var jobs = Array.isArray(latest.jobs) ? latest.jobs : [];
-            renderJobs({ printerName: latest.printerName, jobs: jobs });
+            var activeJobs = [];
+            for (var i = 0; i < jobs.length; i++) {
+                if (!jobs[i] || jobs[i].recentCompleted === true) continue;
+                activeJobs.push(jobs[i]);
+            }
+            renderJobs({ printerName: latest.printerName, jobs: activeJobs });
             var eventName = String(latest.eventType || "");
             if (eventName.indexOf("Creation") >= 0) {
-                setMessage("A print job was detected and displayed automatically.", "success");
+                setTransientMessage("A print job was detected and displayed automatically.", "success");
             } else if (eventName.indexOf("Deletion") >= 0) {
-                setMessage("Windows handed the job to the printer. Physical printing may still be in progress.", "success");
-            }
-
-            // A job vanishes when the Windows spooler hands it to the device, which
-            // can be well before the paper finishes printing. Keep this honest
-            // hand-off state visible for one minute without polling the endpoint.
-            if (state.recentCompletedTimer != null) {
-                window.clearTimeout(state.recentCompletedTimer);
-                state.recentCompletedTimer = null;
-            }
-            var hasRecentCompleted = false;
-            for (var i = 0; i < jobs.length; i++) {
-                if (jobs[i] && jobs[i].recentCompleted === true) { hasRecentCompleted = true; break; }
-            }
-            if (hasRecentCompleted) {
-                var token = ++state.recentCompletedToken;
-                state.recentCompletedTimer = window.setTimeout(function () {
-                    state.recentCompletedTimer = null;
-                    if (token !== state.recentCompletedToken || !state.selectedPrinter) return;
-                    var remaining = [];
-                    for (var j = 0; j < jobs.length; j++) {
-                        if (!jobs[j] || jobs[j].recentCompleted !== true) remaining.push(jobs[j]);
-                    }
-                    renderJobs({ printerName: latest.printerName, jobs: remaining });
-                }, 60000);
+                setTransientMessage("Windows handed the job to the printer. Physical printing may still be in progress.", "success");
             }
         }, 100);
     }
@@ -523,6 +477,14 @@ var PrinterControl = (function () {
         var box = document.getElementById("message");
         box.textContent = text || "";
         box.className = "message" + (kind ? " " + kind : "");
+    }
+
+    function setTransientMessage(text, kind) {
+        setMessage(text, kind);
+        window.setTimeout(function () {
+            var box = document.getElementById("message");
+            if (box.textContent === text) setMessage("");
+        }, 5000);
     }
 
     function formatRemainingTime(milliseconds) {
@@ -1304,7 +1266,6 @@ var PrinterControl = (function () {
         toggleLiveEvents: toggleLiveEvents,
         startLiveEvents: startLiveEvents,
         stopLiveEvents: stopLiveEvents,
-        clearActivity: clearActivity,
         checkLiveVisibility: function () { if (state.liveRequested && !isPluginVisible()) stopLiveEvents("Live monitoring stopped because the Printers tab is no longer visible.", false); },
         unsubscribeJobs: unsubscribeJobs
     };

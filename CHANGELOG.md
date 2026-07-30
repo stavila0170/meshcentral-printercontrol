@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.26
+
+- Replace the transition history with a real-time `Active print jobs — all printers` table.
+- Add jobs when they enter a Windows queue, update their current status and remove them immediately when they leave the spooler.
+- Keep simultaneous active jobs grouped across every printer without retaining completed history rows.
+- Move the all-printer table below the manually selected `Print jobs` queue.
+- Make event notifications disappear automatically after five seconds.
+- Add iframe document scrolling, bottom clearance and horizontally scrollable tables so MeshCentral's footer and narrow layouts do not hide information.
+
 ## 0.4.25
 
 - Add a dedicated `Live print activity — all printers` feed instead of forcing simultaneous events into one selected-printer table.

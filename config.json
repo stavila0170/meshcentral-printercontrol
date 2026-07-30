@@ -1,9 +1,9 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.25",
+  "version": "0.4.26",
   "author": "Custom MeshCentral Integration",
-  "description": "Secure Windows printer management with an endpoint-wide multi-printer activity feed.",
+  "description": "Secure Windows printer management with real-time active jobs across all endpoint printers.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
   "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",
