@@ -107,7 +107,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.36 started with Remote Tools-style error-priority real-time tracking");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.37 started with queue-bitmask fault-priority real-time tracking");
     };
 
     obj.server_shutdown = function () {

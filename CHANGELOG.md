@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.37
+
+- Read the official `Win32_PrintJob.StatusMask` bit field instead of relying only on the often-generic `JobStatus` text.
+- Detect queue-level **Paper Out**, **Offline**, **User Intervention**, **Blocked**, **Error** and **Paused** flags even when the driver simultaneously reports **Printing**.
+- Give the most specific active job fault priority in both the printer row and the corresponding print-job row.
+- Aggregate the numeric `Get-PrintJob.JobStatus` flags as a second signal, matching Remote Tools behavior more closely on Canon and Epson drivers.
+
 ## 0.4.36
 
 - Match the Remote Tools status-resolution model by combining `Get-Printer`, `Get-PrintJob` and `Win32_Printer` signals.
