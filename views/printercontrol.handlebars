@@ -920,7 +920,6 @@ var PrinterControl = (function () {
                     var row = document.createElement("tr");
                     textCell(row, (printer.default ? "★ " : "") + (printer.name || ""));
                     var displayStatus = canonicalLiveStatus(printer.status) || "Ready";
-                    if (Number(printer.jobCount || 0) <= 0 && displayStatus === "Printing") displayStatus = "Idle";
                     var statusCell = textCell(row, displayStatus);
                     statusCell.className = "printer-status " + printerStatusClass(displayStatus);
                     if (printer.liveStatusUpdatedAt) statusCell.title = "Updated in real time: " + printer.liveStatusUpdatedAt;

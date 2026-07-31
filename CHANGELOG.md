@@ -1,13 +1,5 @@
 # Changelog
 
-## 0.4.35
-
-- Prevent drivers such as some Epson/Canon packages from leaving a completed printer permanently in **Printing** when `Win32_Printer` keeps reporting a stale Busy/Processing value.
-- Keep the post-Spooler job visible while physical printing is expected, but apply a bounded busy-state grace period after the page-based estimate.
-- Measure the estimate from the moment the job first appears in the queue instead of restarting the full estimate after Spooler handoff.
-- Return the printer to **Idle** when there are no tracked jobs, even if the Windows driver continues exposing an obsolete Printing state.
-- Preserve fast completion when a reliable driver actually transitions from Printing/Busy back to Idle.
-
 ## 0.4.34
 
 - Keep a print-job row visible with status **Printing** after Windows transfers the job from Spooler to the printer buffer.
