@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.5
+
+- Remove the one-second automatic Print jobs polling interval.
+- Keep Print jobs updates manual through the **Jobs** and **Refresh jobs** buttons.
+- Continue refreshing agent, Print Spooler and printer inventory status every two seconds.
+
 ## 0.4.4
 
 - Hide Remote Desktop redirected printers from inventory by filtering the `Remote Desktop Easy Print` driver and `TSnnn` session ports.
