@@ -401,10 +401,9 @@ var PrinterControl = (function () {
 
     function isActiveQueueJob(job) {
         if (!job || typeof job !== "object") return false;
-        if (job.recentCompleted === true) return false;
-        if (job.physicalPending === true) return true;
+        if (job.recentCompleted === true || job.physicalPending === true) return false;
         var status = String(getJobValue(job, ["jobStatus", "JobStatus", "status", "Status"], "")).toLowerCase();
-        return !/(^|\W)(completed|complete|deleted|deleting|cancelled|canceled)(\W|$)/i.test(status);
+        return !/(^|\W)(printed|completed|complete|deleted|deleting)(\W|$)/i.test(status);
     }
 
     function renderActivity() {
@@ -455,15 +454,10 @@ var PrinterControl = (function () {
             textCell(row, getJobValue(job, ["size", "Size", "jobSize", "JobSize"], ""));
             var actions = document.createElement("td");
             actions.className = "actions";
-            var physicalPending = job.physicalPending === true || job.spoolerOwned === false;
-            if (Number(jobId) > 0 && !physicalPending) {
+            if (Number(jobId) > 0) {
                 actions.appendChild(button("Pause", "manage_jobs", function () { jobActionForPrinter("pauseJob", entry.printerName, Number(jobId)); }));
                 actions.appendChild(button("Resume", "manage_jobs", function () { jobActionForPrinter("resumeJob", entry.printerName, Number(jobId)); }));
                 actions.appendChild(button("Cancel", "manage_jobs", function () { jobActionForPrinter("cancelJob", entry.printerName, Number(jobId)); }, true));
-            } else if (physicalPending) {
-                actions.textContent = "In printer";
-                actions.className += " muted";
-                actions.title = "Windows has already transferred this job to the printer, so Spooler actions are no longer available.";
             } else {
                 actions.textContent = "Live event";
                 actions.className += " muted";
@@ -750,8 +744,8 @@ var PrinterControl = (function () {
 
     function printerStatusClass(status) {
         var value = String(status || "").toLowerCase();
-        if (/error|offline|paper jam|paper out|door open|no toner|not available|output bin full|out of memory|blocked|intervention|stopped/.test(value)) return "error";
-        if (/paused|warming|waiting|processing|busy|toner low|paper low|manual feed/.test(value)) return "warning";
+        if (/error|offline|paper|door open|no toner|not available|blocked|intervention/.test(value)) return "error";
+        if (/paused|warming|waiting|processing|busy/.test(value)) return "warning";
         if (/printing|spooling|physical/.test(value)) return "printing";
         return "idle";
     }
@@ -759,23 +753,16 @@ var PrinterControl = (function () {
     function canonicalLiveStatus(value) {
         var textValue = String(value || "").trim();
         var normalized = textValue.toLowerCase();
-        if (/offline|workoffline|not available|server unknown/.test(normalized)) return "Offline";
+        if (/offline|workoffline|not available/.test(normalized)) return "Offline";
         if (/paper jam/.test(normalized)) return "Paper Jam";
-        if (/paper out|no paper/.test(normalized)) return "Paper Out";
+        if (/paper out/.test(normalized)) return "Paper Out";
         if (/door open/.test(normalized)) return "Door Open";
         if (/no toner|toner empty/.test(normalized)) return "No Toner";
-        if (/output bin full/.test(normalized)) return "Output Bin Full";
-        if (/out of memory/.test(normalized)) return "Out of Memory";
-        if (/manual feed/.test(normalized)) return "Manual Feed";
-        if (/user intervention/.test(normalized)) return "User Intervention";
-        if (/error|blocked|attention|paper problem|page punt/.test(normalized)) return "Error";
-        if (/stopped/.test(normalized)) return "Stopped";
+        if (/error|blocked|attention|intervention/.test(normalized)) return "Error";
         if (/paused/.test(normalized)) return "Paused";
-        if (/toner low/.test(normalized)) return "Toner Low";
-        if (/paper low/.test(normalized)) return "Paper Low";
-        if (/warming|initializ/.test(normalized)) return "Warming up";
-        if (/printing|busy|processing|spooling|physical|sent to printer|finishing|i\/o active|waiting/.test(normalized)) return "Printing";
-        if (/idle|ready|normal|power save/.test(normalized)) return "Idle";
+        if (/warming/.test(normalized)) return "Warming up";
+        if (/printing|busy|processing|spooling|physical|sent to printer|finishing/.test(normalized)) return "Printing";
+        if (/idle|ready|normal/.test(normalized)) return "Idle";
         return textValue;
     }
 
@@ -860,7 +847,7 @@ var PrinterControl = (function () {
             var deviceState = canonicalLiveStatus(getJobValue(job, ["deviceState", "DeviceState"], ""));
             var jobState = canonicalLiveStatus(getJobValue(job, ["jobStatus", "JobStatus", "status", "Status"], ""));
             var candidateStatus = deviceState || jobState;
-            if (/^(Offline|Paper Jam|Paper Out|Door Open|No Toner|Output Bin Full|Out of Memory|Manual Feed|User Intervention|Error|Stopped|Paused)$/.test(candidateStatus)) {
+            if (/^(Offline|Paper Jam|Paper Out|Door Open|No Toner|Error)$/.test(candidateStatus)) {
                 preferredStatus = candidateStatus;
                 break;
             }
@@ -927,7 +914,6 @@ var PrinterControl = (function () {
                     var row = document.createElement("tr");
                     textCell(row, (printer.default ? "★ " : "") + (printer.name || ""));
                     var displayStatus = canonicalLiveStatus(printer.status) || "Ready";
-                    if (Number(printer.jobCount || 0) <= 0 && displayStatus === "Printing") displayStatus = "Idle";
                     var statusCell = textCell(row, displayStatus);
                     statusCell.className = "printer-status " + printerStatusClass(displayStatus);
                     if (printer.liveStatusUpdatedAt) statusCell.title = "Updated in real time: " + printer.liveStatusUpdatedAt;
@@ -1028,14 +1014,11 @@ var PrinterControl = (function () {
     }
 
     function formatJobStatus(job, rawStatus, pagesPrinted, totalPages) {
-        if (job && job.recentCompleted === true) return "Completed";
+        if (job && job.recentCompleted === true) return "Sent to printer";
         if (job && job.physicalPending === true) {
-            var physicalState = String(job.deviceState || "").trim();
-            if (/^(Offline|Paper Jam|Paper Out|Door Open|No Toner|Output Bin Full|Out of Memory|Manual Feed|User Intervention|Error|Stopped|Paused)$/i.test(physicalState)) return physicalState;
-            return "Printing";
+            return String(rawStatus || job.deviceState || "Waiting for printer status");
         }
         var status = String(rawStatus || "").trim();
-        if (/printed|completed|complete/i.test(status)) return "Printing";
         if (pagesPrinted > 0 && totalPages > pagesPrinted &&
                 !/printing|spooling|paused|error|offline|blocked/i.test(status)) {
             return "Printing";
@@ -1044,17 +1027,13 @@ var PrinterControl = (function () {
     }
 
     function formatJobProgress(job, pagesPrinted, totalPages) {
-        if (job && job.recentCompleted === true) return "Completed";
+        if (job && job.recentCompleted === true) return "Spooler finished";
         if (job && job.physicalPending === true) {
             var deviceState = String(job.deviceState || "").trim();
-            var remainingSeconds = Number(job.estimatedSecondsRemaining || 0);
-            if (job.trackingMode === "Device" && job.physicalStatusReported === true && deviceState) {
+            if (job.physicalStatusReported === true && deviceState) {
                 return "Device status: " + deviceState + "; physical page count unavailable";
             }
-            if (remainingSeconds > 0) {
-                return "Physical printing estimated; up to " + remainingSeconds + " sec remaining";
-            }
-            return "Waiting for physical completion; driver does not report page progress";
+            return "Physical page count is not reported by this driver";
         }
         var printed = Number(pagesPrinted);
         var total = Number(totalPages);
@@ -1133,7 +1112,7 @@ var PrinterControl = (function () {
     }
 
     function clearQueue() {
-        if (!confirm("Clear ALL queued print jobs on this computer? The Print Spooler will be restarted. Jobs already transferred into printer memory may continue printing.")) return;
+        if (!confirm("Clear ALL queued print jobs on this computer? The Print Spooler will be restarted.")) return;
         send("clearQueue", {});
     }
 
@@ -1424,7 +1403,7 @@ var PrinterControl = (function () {
             }
             var clearedJobs = message.data && Number(message.data.removedJobs || 0);
             var clearedFiles = message.data && Number(message.data.removedFiles || 0);
-            setMessage("Print queue cleared (" + clearedJobs + " job(s), " + clearedFiles + " spool file(s)). Jobs already buffered inside a printer cannot be recalled by Windows.", "success");
+            setMessage("Print queue cleared (" + clearedJobs + " job(s), " + clearedFiles + " spool file(s)).", "success");
         } else {
             setMessage((message.operation || "Operation") + " completed.", "success");
         }

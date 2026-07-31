@@ -1,37 +1,5 @@
 # Changelog
 
-## 0.4.37
-
-- Read the official `Win32_PrintJob.StatusMask` bit field instead of relying only on the often-generic `JobStatus` text.
-- Detect queue-level **Paper Out**, **Offline**, **User Intervention**, **Blocked**, **Error** and **Paused** flags even when the driver simultaneously reports **Printing**.
-- Give the most specific active job fault priority in both the printer row and the corresponding print-job row.
-- Aggregate the numeric `Get-PrintJob.JobStatus` flags as a second signal, matching Remote Tools behavior more closely on Canon and Epson drivers.
-
-## 0.4.36
-
-- Match the Remote Tools status-resolution model by combining `Get-Printer`, `Get-PrintJob` and `Win32_Printer` signals.
-- Give real printer faults priority over active jobs: Offline, Paper Jam, Paper Out, Door Open, No Toner, Output Bin Full, Out of Memory, Manual Feed, User Intervention, Error, Stopped and Paused are no longer overwritten by **Printing**.
-- Apply the same effective fault state to both the physical-printer list and the corresponding print-job rows in real time.
-- Cache device and cmdlet signals for 350 ms to keep the richer status polling responsive without repeatedly invoking PrintManagement for every event burst.
-
-
-## 0.4.35
-
-- Prevent drivers such as some Epson/Canon packages from leaving a completed printer permanently in **Printing** when `Win32_Printer` keeps reporting a stale Busy/Processing value.
-- Keep the post-Spooler job visible while physical printing is expected, but apply a bounded busy-state grace period after the page-based estimate.
-- Measure the estimate from the moment the job first appears in the queue instead of restarting the full estimate after Spooler handoff.
-- Return the printer to **Idle** when there are no tracked jobs, even if the Windows driver continues exposing an obsolete Printing state.
-- Preserve fast completion when a reliable driver actually transitions from Printing/Busy back to Idle.
-
-## 0.4.34
-
-- Keep a print-job row visible with status **Printing** after Windows transfers the job from Spooler to the printer buffer.
-- Prefer the physical `Win32_Printer` transition from Printing/Busy back to Idle before removing the row.
-- Use a bounded page-count estimate only when the driver does not expose reliable physical progress, and show that the duration is estimated.
-- Keep multiple buffered jobs in order by extending the estimate per printer rather than removing all rows immediately.
-- Disable Pause, Resume and Cancel after Spooler handoff because Windows no longer owns the job.
-- Restart the live watcher after **Clear queue** so all shadow rows are removed, while warning that pages already buffered inside the printer may continue printing.
-
 ## 0.4.33
 
 - Show only jobs that are currently active in the Windows Print Spooler.

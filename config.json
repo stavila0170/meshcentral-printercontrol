@@ -1,9 +1,9 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.37",
+  "version": "0.4.33",
   "author": "Custom MeshCentral Integration",
-  "description": "Secure Windows printer management with live physical printers, hybrid spooler/device tracking, and Remote Tools-style status resolution using queue status bitmasks and physical-device signals.",
+  "description": "Secure Windows printer management with live active physical printers and active spooler jobs removed immediately when printing completes.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
   "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",

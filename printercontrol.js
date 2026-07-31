@@ -107,7 +107,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.37 started with queue-bitmask fault-priority real-time tracking");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.33 started with active-spooler-only real-time print jobs");
     };
 
     obj.server_shutdown = function () {
@@ -1065,10 +1065,7 @@ module.exports.printercontrol = function (parent) {
                     recentCompleted: job.recentCompleted === true,
                     physicalPending: job.physicalPending === true,
                     physicalStatusReported: job.physicalStatusReported === true,
-                    deviceState: typeof job.deviceState === "string" ? job.deviceState.substring(0, 128) : "",
-                    trackingMode: typeof job.trackingMode === "string" ? job.trackingMode.substring(0, 32) : "",
-                    estimatedSecondsRemaining: typeof job.estimatedSecondsRemaining === "number" ? Math.max(0, Math.floor(job.estimatedSecondsRemaining)) : parseInt(job.estimatedSecondsRemaining, 10) || 0,
-                    spoolerOwned: job.spoolerOwned !== false
+                    deviceState: typeof job.deviceState === "string" ? job.deviceState.substring(0, 128) : ""
                 });
             }
         }
