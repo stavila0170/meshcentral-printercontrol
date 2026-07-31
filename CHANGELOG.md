@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.4.12
+
+- Make live print-job monitoring explicitly opt-in; pressing **Jobs** now performs only a one-time queue load.
+- Add visible **Start live events** / **Stop live events** controls.
+- Stop live monitoring automatically when the Printers iframe becomes hidden.
+- Add a lightweight 15-second browser-to-server heartbeat only while live monitoring is enabled.
+- Expire stale server subscriptions after 45 seconds and enforce a 10-minute maximum live session.
+- Add an independent MeshAgent watcher lease, a PowerShell self-timeout and a 10-minute endpoint hard limit so orphaned PowerShell/WMI processes cannot remain active indefinitely.
+- Perform a narrowly targeted one-time cleanup of legacy watcher processes left by earlier live-monitoring builds.
+- Stop and remove subscriptions when watcher startup fails, the agent goes offline, or the watcher exits.
+- Keep printer inventory and manual queue refresh free of periodic polling.
+
+## 0.4.11
+
+- Fix the live watcher exiting immediately with code 0 after startup.
+- Launch the watcher through a short PowerShell bootstrap that first reads the complete program from standard input and then executes it as a ScriptBlock.
+- Closing stdin now completes only the program transfer and no longer terminates the long-running watcher.
+
+## 0.4.10
+
+- Fix `ManagementException: Unparsable query` when starting live print-job events.
+- Replace the unsupported 250 ms intrinsic-event interval with the valid WQL query `WITHIN 1`.
+- Keep the design event-driven between endpoint, MeshCentral server and browser; only WMI performs its required local one-second intrinsic-event check while a Jobs subscription is active.
+
+## 0.4.9
+
+- Fix the 0.4.8 watcher startup bug by closing PowerShell standard input after sending the multi-line watcher program.
+- Wait for an explicit `ready` message from PowerShell before showing **Live events on**.
+- Reduce the local WMI intrinsic-event sampling interval from one second to 0.25 seconds so short-lived print jobs are much less likely to be missed.
+- Preserve completed jobs as a recent event for 15 seconds using a one-shot browser timer, without any periodic server or endpoint refresh.
+- Show a concrete watcher error instead of reporting live events as active when PowerShell did not actually start.
+
+## 0.4.8
+
+- Add event-driven print-job updates without browser or server polling.
+- Start one local `Win32_PrintJob` WMI watcher only after **Jobs** is selected and stop it when the last browser subscription closes.
+- Send bounded queue snapshots from MeshAgent to the subscribed MeshCentral session when a job is created, modified or deleted.
+- Debounce rapid job events in the browser and render the newest queue snapshot directly, without launching a second PowerShell request.
+- Keep **Refresh jobs** as a manual fallback and retain manual-only printer inventory refresh.
+- Preserve redirected-printer filtering, dark-mode fixes and the PowerShell standard-input launcher from 0.4.7.
+
 ## 0.4.7
 
 - Fix PowerShell parse failures on MeshAgent caused by passing a command longer than approximately 4 KiB through the Windows process command line.
