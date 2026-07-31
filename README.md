@@ -1,6 +1,6 @@
-# Mesh Printer Control 0.4.34
+# Mesh Printer Control 0.4.36
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.34 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.36 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
 
 ## Included operations
 
@@ -16,14 +16,16 @@ The browser cannot submit PowerShell. The server and endpoint accept only the fi
 
 ### Refresh and live print-job behavior
 
-Version 0.4.34 displays two distinct sections:
+Version 0.4.36 displays two distinct sections:
 
 - **Active physical printers** — only real printer queues that Windows currently reports as available. Remote Desktop redirected queues and common virtual PDF, XPS, Fax and OneNote printers are excluded. The existing endpoint watcher sends a lightweight printer-state snapshot approximately every two seconds, so an offline printer disappears and an available printer reappears without running a full inventory refresh.
 - **Print jobs — all printers** — the only print-job table. It aggregates current jobs from every active physical printer and keeps Pause, Resume and Cancel bound to the printer named in each row.
 
 The watcher starts automatically and remains enabled while the top-level **Printers** tab is selected. It stops only when another MeshCentral device tab such as Desktop, Terminal or Files is selected, or when the plugin page unloads. Browser minimization and browser-tab visibility changes do not stop monitoring. A 15-second lease heartbeat and automatic renewal before the independent 10-minute safety limit prevent orphaned endpoint processes.
 
-Printer jobs are read from `Win32_PrintJob`. Windows can remove a job as soon as it has been transferred to the printer buffer, before all pages have physically printed. Version 0.4.34 therefore keeps a shadow row with status **Printing** after Spooler handoff. When the driver reports physical device state, the row is removed after the printer returns from Printing/Busy to Idle. When the driver exposes no reliable physical state, a bounded estimate based on the reported page count is used and is clearly identified as estimated. No completed-history row is retained after the physical or estimated completion point.
+Printer status is resolved with the same priority model used by Remote Tools: `Get-Printer` and `Get-PrintJob` signals are combined with `Win32_Printer`, and real faults such as Offline, Paper Jam, Paper Out, Door Open, No Toner, Output Bin Full, Out of Memory, User Intervention, Error or Stopped always override Printing. Queue rows inherit the same fault state in real time.
+
+Printer jobs are read from `Win32_PrintJob`. Windows can remove a job as soon as it has been transferred to the printer buffer, before all pages have physically printed. Version 0.4.36 therefore keeps a shadow row with status **Printing** after Spooler handoff. A reliable Printing/Busy-to-Idle transition completes the row immediately. Some drivers keep an obsolete Busy/Processing value indefinitely; for those drivers, the watcher measures a bounded page-based estimate from the job's first queue appearance and applies only a short final grace period. When no tracked jobs remain, a stale driver-level Printing value is displayed as **Idle**. No completed-history row is retained after completion.
 
 ## Requirements
 
@@ -57,7 +59,7 @@ Enable the plugin in the `settings` section of `meshcentral-data/config.json`:
 
 Retain existing entries in `plugins.list`. Restart MeshCentral after copying the plugin. On Windows-hosted MeshCentral, `Install-MeshCentralPlugin.ps1` performs the copy, verifies every installed file and optionally restarts the service.
 
-For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.34` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
+For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.36` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
 
 ```powershell
 docker exec meshcentral rm -rf /opt/meshcentral/meshcentral-data/plugins/printercontrol
@@ -95,7 +97,7 @@ sc.exe delete MeshPrinterControl
 Remove-Item "$env:ProgramData\MeshPrinterControl" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-Version 0.4.34 does not recreate this directory.
+Version 0.4.36 does not recreate this directory.
 
 ## Security design
 
@@ -135,6 +137,6 @@ node tests\test_agent_only.js
 ```
 
 
-## Active physical printers and hybrid all-printers queue (0.4.34)
+## Active physical printers and hybrid all-printers queue (0.4.36)
 
 The browser displays one Print jobs table. It receives live queue events from every printer on the endpoint and includes the printer name in each row.

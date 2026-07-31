@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.36
+
+- Match the Remote Tools status-resolution model by combining `Get-Printer`, `Get-PrintJob` and `Win32_Printer` signals.
+- Give real printer faults priority over active jobs: Offline, Paper Jam, Paper Out, Door Open, No Toner, Output Bin Full, Out of Memory, Manual Feed, User Intervention, Error, Stopped and Paused are no longer overwritten by **Printing**.
+- Apply the same effective fault state to both the physical-printer list and the corresponding print-job rows in real time.
+- Cache device and cmdlet signals for 350 ms to keep the richer status polling responsive without repeatedly invoking PrintManagement for every event burst.
+
+
+## 0.4.35
+
+- Prevent drivers such as some Epson/Canon packages from leaving a completed printer permanently in **Printing** when `Win32_Printer` keeps reporting a stale Busy/Processing value.
+- Keep the post-Spooler job visible while physical printing is expected, but apply a bounded busy-state grace period after the page-based estimate.
+- Measure the estimate from the moment the job first appears in the queue instead of restarting the full estimate after Spooler handoff.
+- Return the printer to **Idle** when there are no tracked jobs, even if the Windows driver continues exposing an obsolete Printing state.
+- Preserve fast completion when a reliable driver actually transitions from Printing/Busy back to Idle.
+
 ## 0.4.34
 
 - Keep a print-job row visible with status **Printing** after Windows transfers the job from Spooler to the printer buffer.
