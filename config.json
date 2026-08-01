@@ -1,7 +1,7 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.37",
+  "version": "0.4.38",
   "author": "Custom MeshCentral Integration",
   "description": "Secure Windows printer management with live physical printers, hybrid spooler/device tracking, and Remote Tools-style status resolution using queue status bitmasks and physical-device signals.",
   "hasAdminPanel": false,

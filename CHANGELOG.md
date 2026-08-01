@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.38
+
+- Capture very short USB print jobs through two independent sources: `Win32_PrintJob` and the direct PrintManagement `Get-PrintJob` interface.
+- Recreate the `Win32_PrintJob` searcher for each snapshot so WMI provider caching cannot leave the live watcher on an obsolete result set.
+- After a native Spooler notification, sample the queues for a longer high-frequency burst and query `Get-PrintJob` every second sample.
+- Poll the direct PrintManagement source periodically even when native Spooler notifications are unavailable.
+- Preserve the existing post-Spooler physical-print tracking once a fast job has been captured.
+
 ## 0.4.37
 
 - Read the official `Win32_PrintJob.StatusMask` bit field instead of relying only on the often-generic `JobStatus` text.
