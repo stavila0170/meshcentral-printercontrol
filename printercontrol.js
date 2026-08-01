@@ -107,7 +107,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.42 started with fixed-length in-memory watcher launch, shared startup acknowledgement and PrintService fallback capture");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.40 started with watcher recovery, existing-subscriber acknowledgement and PrintService fallback capture");
     };
 
     obj.server_shutdown = function () {
@@ -833,7 +833,7 @@ module.exports.printercontrol = function (parent) {
             } else {
                 delete obj.watcherState[pending.nodeid];
             }
-        }, 45000);
+        }, 30000);
         obj.pending[requestId] = {
             kind: action === "watchJobsStart" ? "watcherStart" : "watcherStop",
             nodeid: nodeid,

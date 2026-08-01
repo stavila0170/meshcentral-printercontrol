@@ -1,21 +1,5 @@
 # Changelog
 
-## 0.4.42
-
-- Fix watcher startup on MeshAgent builds whose embedded `fs.writeFileSync` throws `TypeError: number required, found undefined`.
-- Remove the temporary watcher-file startup introduced in 0.4.41.
-- Transfer the watcher through PowerShell standard input with an exact character count, so PowerShell starts without waiting for an unreliable EOF signal.
-- Send the watcher in 4 KiB chunks for compatibility with older MeshAgent pipe buffers.
-- Preserve shared startup acknowledgements, automatic reconnect, native Winspool sampling and PrintService event fallback.
-
-## 0.4.41
-
-- Start the long-running PowerShell watcher from a temporary `.ps1` file instead of streaming the complete program through standard input. This prevents the watcher from remaining on **Starting real-time status...** on endpoints where the stdin bootstrap stalls.
-- Keep all concurrent watcher-start requests attached to the same starting process and acknowledge them together when PowerShell reports ready.
-- Do not report an existing watcher as active until it has actually emitted its ready signal.
-- Publish an additional watcher-ready status event after startup and extend the browser startup grace period to avoid false reconnect loops on slower endpoints.
-- Remove the temporary watcher script automatically when the watcher exits or is stopped.
-
 ## 0.4.40
 
 - Acknowledge newly opened or rebuilt Printers pages immediately when the endpoint watcher is already active, preventing an indefinite **Starting real-time status...** badge.
