@@ -1,30 +1,11 @@
 # Changelog
 
-## 0.4.44
+## 0.4.45
 
-- Keep the proven 0.4.40 watcher/startup mechanism.
-- Decode the legacy `Win32_Printer.PrinterState` status code, including Paper Jam, Paper Out, Paper Problem, Door Open, No Toner, Output Bin Full, Manual Feed and User Intervention.
-- Read `ExtendedDetectedErrorState`, `ErrorInformation`, `ErrorDescription` and additional WMI status text for printer models whose normal `PrinterStatus` remains `Printing` or `Idle`.
-- Add a bounded stalled-queue heuristic: when a job remains in the Windows queue beyond its page-based expected duration without any status/page progress, show `Paper Problem` and warn that paper may be missing or jammed.
-- Show a persistent red in-page alert, sound and optional desktop notification for exact Paper Jam/Paper Out states and for the fallback Paper Problem state.
-- Clear the fallback warning automatically as soon as the queue progresses, the job ends or the driver reports a more specific state.
-
-## 0.4.43
-
-- Built directly from the stable 0.4.40 code path; no 0.4.41/0.4.42 watcher-start changes are included.
-- Show a persistent red alert when a physical printer reports **Paper Jam** or **Paper Out**.
-- Display the affected printer name and a clear corrective instruction, and keep the alert visible until the fault clears.
-- Highlight the affected printer row and play a three-tone alert only when a new fault appears, avoiding repeated sounds on every two-second snapshot.
-- Add optional browser desktop notifications through the **Enable desktop alerts** button.
-- Recognize additional English and Romanian paper-jam / missing-paper status variants.
-
-## 0.4.40
-
-- Acknowledge newly opened or rebuilt Printers pages immediately when the endpoint watcher is already active, preventing an indefinite **Starting real-time status...** badge.
-- Add a 20-second browser-side startup watchdog that safely recreates the live subscription when a ready acknowledgement is lost.
-- Send the endpoint watcher ready acknowledgement before native interop initialization, so slow PowerShell `Add-Type` startup no longer blocks the UI state.
-- Enable and poll `Microsoft-Windows-PrintService/Operational` event 307 as a fallback for ultra-short USB jobs that disappear before `EnumJobs`, `Win32_PrintJob` or `Get-PrintJob` can sample them.
-- Reconstruct missed jobs from the PrintService event metadata and keep them visible with the existing bounded physical-print estimate.
+- Rebased the endpoint watcher on the stable 0.4.40 startup implementation.
+- Added persistent browser, sound and optional desktop alerts for Paper Out, Paper Jam and Paper Problem.
+- Added a bounded no-progress heuristic for drivers that expose only Printing or Idle while paper is missing or jammed.
+- Propagated physical-job Paper Problem state to the active-printer inventory.
 
 ## 0.4.39
 
