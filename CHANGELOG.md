@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.44
+
+- Keep the proven 0.4.40 watcher/startup mechanism.
+- Decode the legacy `Win32_Printer.PrinterState` status code, including Paper Jam, Paper Out, Paper Problem, Door Open, No Toner, Output Bin Full, Manual Feed and User Intervention.
+- Read `ExtendedDetectedErrorState`, `ErrorInformation`, `ErrorDescription` and additional WMI status text for printer models whose normal `PrinterStatus` remains `Printing` or `Idle`.
+- Add a bounded stalled-queue heuristic: when a job remains in the Windows queue beyond its page-based expected duration without any status/page progress, show `Paper Problem` and warn that paper may be missing or jammed.
+- Show a persistent red in-page alert, sound and optional desktop notification for exact Paper Jam/Paper Out states and for the fallback Paper Problem state.
+- Clear the fallback warning automatically as soon as the queue progresses, the job ends or the driver reports a more specific state.
+
 ## 0.4.43
 
 - Built directly from the stable 0.4.40 code path; no 0.4.41/0.4.42 watcher-start changes are included.

@@ -798,12 +798,14 @@ var PrinterControl = (function () {
         var normalized = String(status || "").trim().toLowerCase();
         if (/paper jam|jammed paper|paper.*jam|blocaj.*h(?:â|a)rtie|h(?:â|a)rtie.*blocat/.test(normalized)) return "Paper Jam";
         if (/paper out|no paper|out of paper|paper empty|empty paper tray|tray empty|f(?:ă|a)r(?:ă|a) h(?:â|a)rtie|lips(?:ă|a).*h(?:â|a)rtie|nu (?:mai )?este h(?:â|a)rtie/.test(normalized)) return "Paper Out";
+        if (/paper problem|possible paper out|possible paper jam|check paper|stalled paper/.test(normalized)) return "Paper Problem";
         return "";
     }
 
     function alertInstruction(fault) {
         if (fault === "Paper Jam") return "eliminați hârtia blocată";
         if (fault === "Paper Out") return "adăugați hârtie";
+        if (fault === "Paper Problem") return "verificați tava și traseul hârtiei; este posibil să lipsească hârtia sau să fie blocată";
         return "verificați imprimanta";
     }
 
@@ -970,7 +972,7 @@ var PrinterControl = (function () {
 
     function printerStatusClass(status) {
         var value = String(status || "").toLowerCase();
-        if (/error|offline|paper jam|paper out|door open|no toner|not available|output bin full|out of memory|blocked|intervention|stopped/.test(value)) return "error";
+        if (/error|offline|paper jam|paper out|paper problem|door open|no toner|not available|output bin full|out of memory|blocked|intervention|stopped/.test(value)) return "error";
         if (/paused|warming|waiting|processing|busy|toner low|paper low|manual feed/.test(value)) return "warning";
         if (/printing|spooling|physical/.test(value)) return "printing";
         return "idle";
@@ -982,13 +984,14 @@ var PrinterControl = (function () {
         if (/offline|workoffline|not available|server unknown/.test(normalized)) return "Offline";
         if (/paper jam|jammed paper|paper.*jam|blocaj.*h(?:â|a)rtie|h(?:â|a)rtie.*blocat/.test(normalized)) return "Paper Jam";
         if (/paper out|no paper|out of paper|paper empty|empty paper tray|tray empty|f(?:ă|a)r(?:ă|a) h(?:â|a)rtie|lips(?:ă|a).*h(?:â|a)rtie|nu (?:mai )?este h(?:â|a)rtie/.test(normalized)) return "Paper Out";
+        if (/paper problem|possible paper out|possible paper jam|check paper|stalled paper/.test(normalized)) return "Paper Problem";
         if (/door open/.test(normalized)) return "Door Open";
         if (/no toner|toner empty/.test(normalized)) return "No Toner";
         if (/output bin full/.test(normalized)) return "Output Bin Full";
         if (/out of memory/.test(normalized)) return "Out of Memory";
         if (/manual feed/.test(normalized)) return "Manual Feed";
         if (/user intervention/.test(normalized)) return "User Intervention";
-        if (/error|blocked|attention|paper problem|page punt/.test(normalized)) return "Error";
+        if (/error|blocked|attention|page punt/.test(normalized)) return "Error";
         if (/stopped/.test(normalized)) return "Stopped";
         if (/paused/.test(normalized)) return "Paused";
         if (/toner low/.test(normalized)) return "Toner Low";

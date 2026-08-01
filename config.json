@@ -1,9 +1,9 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.43",
+  "version": "0.4.44",
   "author": "Custom MeshCentral Integration",
-  "description": "MeshPrinterControl 0.4.40 base with persistent Paper Jam/Paper Out alerts, sound, optional desktop notifications, native Winspool queue capture and Remote Tools-style fault priority.",
+  "description": "MeshPrinterControl 0.4.40 base with persistent paper alerts, Win32 PrinterState and extended-error decoding and a bounded stalled-queue paper-problem warning for drivers that remain Printing or Idle.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
   "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",
