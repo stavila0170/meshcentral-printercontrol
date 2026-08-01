@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.43
+
+- Built directly from the stable 0.4.40 code path; no 0.4.41/0.4.42 watcher-start changes are included.
+- Show a persistent red alert when a physical printer reports **Paper Jam** or **Paper Out**.
+- Display the affected printer name and a clear corrective instruction, and keep the alert visible until the fault clears.
+- Highlight the affected printer row and play a three-tone alert only when a new fault appears, avoiding repeated sounds on every two-second snapshot.
+- Add optional browser desktop notifications through the **Enable desktop alerts** button.
+- Recognize additional English and Romanian paper-jam / missing-paper status variants.
+
 ## 0.4.40
 
 - Acknowledge newly opened or rebuilt Printers pages immediately when the endpoint watcher is already active, preventing an indefinite **Starting real-time status...** badge.
