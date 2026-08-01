@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.41
+
+- Start the long-running PowerShell watcher from a temporary `.ps1` file instead of streaming the complete program through standard input. This prevents the watcher from remaining on **Starting real-time status...** on endpoints where the stdin bootstrap stalls.
+- Keep all concurrent watcher-start requests attached to the same starting process and acknowledge them together when PowerShell reports ready.
+- Do not report an existing watcher as active until it has actually emitted its ready signal.
+- Publish an additional watcher-ready status event after startup and extend the browser startup grace period to avoid false reconnect loops on slower endpoints.
+- Remove the temporary watcher script automatically when the watcher exits or is stopped.
+
 ## 0.4.40
 
 - Acknowledge newly opened or rebuilt Printers pages immediately when the endpoint watcher is already active, preventing an indefinite **Starting real-time status...** badge.

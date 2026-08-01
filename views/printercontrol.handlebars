@@ -274,7 +274,7 @@ var PrinterControl = (function () {
             if (!state.liveRequested || state.watcherReady || state.unloading || !state.topTabActive) return;
             stopLiveEvents(null, true);
             scheduleAutomaticLiveRestart("Real-time watcher did not become ready in time.");
-        }, 20000);
+        }, 40000);
     }
 
     function clearAutoLiveRestartTimer() {
