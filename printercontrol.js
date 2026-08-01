@@ -107,7 +107,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.39 started with native Winspool EnumJobs capture and queue-bitmask fault-priority tracking");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.40 started with watcher recovery, existing-subscriber acknowledgement and PrintService fallback capture");
     };
 
     obj.server_shutdown = function () {
@@ -998,6 +998,16 @@ module.exports.printercontrol = function (parent) {
                     }));
                     stopWatcherIfUnused(command.nodeid);
                 } else if (!bucketWasEmpty && obj.watcherState[command.nodeid] === "active") {
+                    // A watcher can already be active when the Printers page is
+                    // rebuilt, refreshed, or opened in a second browser tab. The
+                    // new subscriber must receive its own ready acknowledgement;
+                    // otherwise its badge remains on "Starting real-time status"
+                    // even though events are already flowing on the endpoint.
+                    sendToSession(session, browserMessage("watcherStatus", {
+                        nodeid: command.nodeid,
+                        success: true,
+                        error: null
+                    }));
                     renewWatcherLease(command.nodeid, false);
                 }
             }).catch(function (permissionError) {

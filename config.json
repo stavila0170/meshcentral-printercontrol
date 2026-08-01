@@ -1,9 +1,9 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.39",
+  "version": "0.4.40",
   "author": "Custom MeshCentral Integration",
-  "description": "Secure Windows printer management with native Winspool EnumJobs capture, live physical printers, hybrid spooler/device tracking, and Remote Tools-style fault priority.",
+  "description": "Secure Windows printer management with watcher recovery, native Winspool queue capture, PrintService fallback detection, live physical printers, and Remote Tools-style fault priority.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
   "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",

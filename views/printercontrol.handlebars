@@ -172,6 +172,7 @@ var PrinterControl = (function () {
         subscriptionActive: false,
         watcherReady: false,
         liveRequested: false,
+        watcherStartTimer: null,
         heartbeatTimer: null,
         liveMaxTimer: null,
         eventRefreshTimer: null,
@@ -259,6 +260,23 @@ var PrinterControl = (function () {
         if (state.liveMaxTimer != null) { window.clearTimeout(state.liveMaxTimer); state.liveMaxTimer = null; }
     }
 
+    function clearWatcherStartTimer() {
+        if (state.watcherStartTimer != null) {
+            window.clearTimeout(state.watcherStartTimer);
+            state.watcherStartTimer = null;
+        }
+    }
+
+    function armWatcherStartTimer() {
+        clearWatcherStartTimer();
+        state.watcherStartTimer = window.setTimeout(function () {
+            state.watcherStartTimer = null;
+            if (!state.liveRequested || state.watcherReady || state.unloading || !state.topTabActive) return;
+            stopLiveEvents(null, true);
+            scheduleAutomaticLiveRestart("Real-time watcher did not become ready in time.");
+        }, 20000);
+    }
+
     function clearAutoLiveRestartTimer() {
         if (state.autoLiveRestartTimer != null) {
             window.clearTimeout(state.autoLiveRestartTimer);
@@ -309,6 +327,7 @@ var PrinterControl = (function () {
     }
 
     function clearLiveState() {
+        clearWatcherStartTimer();
         stopLiveTimers();
         state.liveRequested = false;
         state.subscriptionActive = false;
@@ -334,6 +353,7 @@ var PrinterControl = (function () {
             clearLiveState();
             return false;
         }
+        armWatcherStartTimer();
         return true;
     }
 
@@ -348,6 +368,7 @@ var PrinterControl = (function () {
         var printerName = state.subscriptionPrinter || "*";
         var shouldUnsubscribe = state.subscriptionActive || state.liveRequested || !!state.subscriptionPrinter;
         state.liveRequested = false;
+        clearWatcherStartTimer();
         stopLiveTimers();
         if (shouldUnsubscribe && state.subscriptionId) {
             sendSubscription(false, printerName);
@@ -1225,6 +1246,7 @@ var PrinterControl = (function () {
 
         if (message.type === "watcherStatus") {
             if (message.success === true && state.liveRequested && state.subscriptionActive) {
+                clearWatcherStartTimer();
                 state.watcherReady = true;
                 setLiveBadge("Real-time status on", "ok");
                 state.autoLiveRestartAttempts = 0;

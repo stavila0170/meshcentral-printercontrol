@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.40
+
+- Acknowledge newly opened or rebuilt Printers pages immediately when the endpoint watcher is already active, preventing an indefinite **Starting real-time status...** badge.
+- Add a 20-second browser-side startup watchdog that safely recreates the live subscription when a ready acknowledgement is lost.
+- Send the endpoint watcher ready acknowledgement before native interop initialization, so slow PowerShell `Add-Type` startup no longer blocks the UI state.
+- Enable and poll `Microsoft-Windows-PrintService/Operational` event 307 as a fallback for ultra-short USB jobs that disappear before `EnumJobs`, `Win32_PrintJob` or `Get-PrintJob` can sample them.
+- Reconstruct missed jobs from the PrintService event metadata and keep them visible with the existing bounded physical-print estimate.
+
 ## 0.4.39
 
 - Add a native Windows Spooler `EnumJobs` reader as the primary source for active jobs, independent of WMI and the PrintManagement module.
