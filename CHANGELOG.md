@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.39
+
+- Add a native Windows Spooler `EnumJobs` reader as the primary source for active jobs, independent of WMI and the PrintManagement module.
+- Poll native queues every 100 ms while the Printers tab is active and sample them immediately during Spooler notification bursts.
+- Preserve `Win32_PrintJob` and `Get-PrintJob` as enrichment/fallback sources for document, user, page and status data.
+- Fall back to `Win32_Printer` when `Get-Printer` is unavailable while discovering queue names.
+- Keep Remote Tools-style fault priority and the existing post-Spooler physical-print tracking after the job is captured.
+
 ## 0.4.38
 
 - Capture very short USB print jobs through two independent sources: `Win32_PrintJob` and the direct PrintManagement `Get-PrintJob` interface.
