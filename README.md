@@ -1,4 +1,7 @@
-# Safety note for 0.4.46
+# Mesh Printer Control 0.4.47
+
+Version 0.4.47 replaces the persistent Winspool watcher with short serialized snapshots every two seconds while the Printers tab is open. It automatically terminates stale watcher processes left by older versions and does not retain printer handles.
+
 
 Version 0.4.46 uses the unchanged 0.4.40 endpoint watcher. Paper alerts are evaluated in the browser from statuses and jobs already received; the alert feature does not add extra Spooler/WMI polling and cannot block the Windows print dialog.
 

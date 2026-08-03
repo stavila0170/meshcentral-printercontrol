@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.47
+
+- Disables the persistent Winspool notification watcher that could retain printer handles and freeze Word or browser print dialogs on some USB drivers.
+- Uses a short serialized snapshot every two seconds only while the Printers tab is active.
+- Adds all active jobs to each snapshot, so the all-printers job table remains live without a long-running endpoint process.
+- Automatically terminates stale `MESH_PRINTERCONTROL_WATCHER_*` PowerShell processes left by older releases on the first refresh.
+- Preserves exact Paper Out/Paper Jam reporting when the Windows driver exposes it.
+
 ## 0.4.46
 
 - Reverted the agent-side paper-problem heuristic that could block the Windows Print Spooler and freeze Word/Edge print dialogs.

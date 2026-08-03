@@ -1,9 +1,9 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.46",
+  "version": "0.4.47",
   "author": "Custom MeshCentral Integration",
-  "description": "Stable 0.4.40 watcher with non-blocking browser-side Paper Out/Paper Jam alerts and conservative stalled-job warnings; no extra Spooler polling.",
+  "description": "Safe serialized 2-second printer snapshots with all-printer jobs and paper fault status; persistent Winspool watcher disabled to prevent Word/Edge freezes.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
   "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",
