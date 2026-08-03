@@ -215,6 +215,9 @@ var PrinterControl = (function () {
         autoLiveRestartTimer: null,
         autoLiveRestartAttempts: 0,
         activePrinterFaults: {},
+        possiblePrinterFaults: {},
+        jobProgressWatch: {},
+        stalledJobCheckTimer: null,
         alertAudioContext: null,
         originalDocumentTitle: document.title
     };
@@ -434,6 +437,7 @@ var PrinterControl = (function () {
         state.topTabActive = false;
         clearAutoLiveRestartTimer();
         stopTestPageJobDiscovery();
+        stopStalledJobChecks();
         return stopLiveEvents(null, true);
     }
 
@@ -798,14 +802,14 @@ var PrinterControl = (function () {
         var normalized = String(status || "").trim().toLowerCase();
         if (/paper jam|jammed paper|paper.*jam|blocaj.*h(?:â|a)rtie|h(?:â|a)rtie.*blocat/.test(normalized)) return "Paper Jam";
         if (/paper out|no paper|out of paper|paper empty|empty paper tray|tray empty|f(?:ă|a)r(?:ă|a) h(?:â|a)rtie|lips(?:ă|a).*h(?:â|a)rtie|nu (?:mai )?este h(?:â|a)rtie/.test(normalized)) return "Paper Out";
-        if (/paper problem|possible paper out|possible paper jam|check paper|stalled paper/.test(normalized)) return "Paper Problem";
+        if (/paper problem|possible paper|needs attention/.test(normalized)) return "Paper Problem";
         return "";
     }
 
     function alertInstruction(fault) {
         if (fault === "Paper Jam") return "eliminați hârtia blocată";
         if (fault === "Paper Out") return "adăugați hârtie";
-        if (fault === "Paper Problem") return "verificați tava și traseul hârtiei; este posibil să lipsească hârtia sau să fie blocată";
+        if (fault === "Paper Problem") return "verificați dacă lipsește hârtia sau există un blocaj";
         return "verificați imprimanta";
     }
 
@@ -939,22 +943,130 @@ var PrinterControl = (function () {
         }
     }
 
+    function jobValueForWatch(job, names, fallback) {
+        return getJobValue(job, names, fallback);
+    }
+
+    function jobProgressSignature(jobs) {
+        var parts = [];
+        for (var i = 0; i < jobs.length; i++) {
+            var job = jobs[i] || {};
+            parts.push([
+                String(jobValueForWatch(job, ["id", "Id", "jobId", "JobId"], "")),
+                String(jobValueForWatch(job, ["pagesPrinted", "PagesPrinted"], 0)),
+                String(jobValueForWatch(job, ["totalPages", "TotalPages"], 0)),
+                String(jobValueForWatch(job, ["jobStatus", "JobStatus", "status", "Status"], "")),
+                String(jobValueForWatch(job, ["size", "Size"], 0))
+            ].join(":"));
+        }
+        parts.sort();
+        return parts.join("|");
+    }
+
+    function stalledJobThresholdMs(jobs) {
+        var pages = 0;
+        for (var i = 0; i < jobs.length; i++) {
+            var total = Number(jobValueForWatch(jobs[i], ["totalPages", "TotalPages"], 0));
+            if (isFinite(total) && total > 0) pages += Math.floor(total);
+        }
+        if (pages <= 0) pages = 1;
+        return Math.min(600000, Math.max(60000, 45000 + (pages * 20000)));
+    }
+
+    function updateJobProgressWatch(printerName, activeJobs) {
+        var name = String(printerName || "").trim();
+        if (!name) return;
+        var key = name.toLowerCase();
+        if (!activeJobs || !activeJobs.length) {
+            delete state.jobProgressWatch[key];
+            delete state.possiblePrinterFaults[key];
+            return;
+        }
+        var now = Date.now();
+        var signature = jobProgressSignature(activeJobs);
+        var threshold = stalledJobThresholdMs(activeJobs);
+        var watch = state.jobProgressWatch[key];
+        if (!watch) {
+            watch = { printerName:name, signature:signature, firstSeenAt:now, lastProgressAt:now, thresholdMs:threshold, jobs:activeJobs };
+            state.jobProgressWatch[key] = watch;
+        } else {
+            watch.printerName = name;
+            watch.jobs = activeJobs;
+            watch.thresholdMs = threshold;
+            if (watch.signature !== signature) {
+                watch.signature = signature;
+                watch.lastProgressAt = now;
+                delete state.possiblePrinterFaults[key];
+            }
+        }
+    }
+
+    function evaluateStalledJobWarnings() {
+        var now = Date.now();
+        var changed = false;
+        for (var key in state.jobProgressWatch) {
+            if (!Object.prototype.hasOwnProperty.call(state.jobProgressWatch, key)) continue;
+            var watch = state.jobProgressWatch[key];
+            if (!watch || !watch.jobs || !watch.jobs.length) {
+                delete state.jobProgressWatch[key];
+                if (state.possiblePrinterFaults[key]) { delete state.possiblePrinterFaults[key]; changed = true; }
+                continue;
+            }
+            if (now - Number(watch.lastProgressAt || now) >= Number(watch.thresholdMs || 60000)) {
+                if (!state.possiblePrinterFaults[key]) {
+                    state.possiblePrinterFaults[key] = { printerName:watch.printerName, fault:"Paper Problem", possible:true };
+                    changed = true;
+                }
+            } else if (state.possiblePrinterFaults[key]) {
+                delete state.possiblePrinterFaults[key];
+                changed = true;
+            }
+        }
+        if (changed && state.inventory) renderInventory(state.inventory, true);
+        return changed;
+    }
+
+    function startStalledJobChecks() {
+        if (state.stalledJobCheckTimer != null) return;
+        state.stalledJobCheckTimer = window.setInterval(evaluateStalledJobWarnings, 5000);
+    }
+
+    function stopStalledJobChecks() {
+        if (state.stalledJobCheckTimer != null) {
+            window.clearInterval(state.stalledJobCheckTimer);
+            state.stalledJobCheckTimer = null;
+        }
+    }
+
     function refreshCriticalPrinterAlerts(printers) {
         var previous = state.activePrinterFaults || {};
         var current = {};
         var faults = [];
         var newFaults = [];
+        var exactByPrinter = {};
         for (var i = 0; i < printers.length; i++) {
             var printer = printers[i];
             if (!printer) continue;
             var printerName = String(printer.name || "").trim();
             var fault = criticalPrinterFault(canonicalLiveStatus(printer.status));
             if (!printerName || !fault) continue;
+            exactByPrinter[printerName.toLowerCase()] = true;
             var key = printerName.toLowerCase() + "|" + fault.toLowerCase();
-            var item = { key: key, printerName: printerName, fault: fault };
+            var item = { key:key, printerName:printerName, fault:fault };
             current[key] = item;
             faults.push(item);
             if (!previous[key]) newFaults.push(item);
+        }
+        for (var possibleKey in state.possiblePrinterFaults) {
+            if (!Object.prototype.hasOwnProperty.call(state.possiblePrinterFaults, possibleKey)) continue;
+            if (exactByPrinter[possibleKey]) continue;
+            var possible = state.possiblePrinterFaults[possibleKey];
+            if (!possible) continue;
+            var possibleItemKey = possibleKey + "|paper problem";
+            var possibleItem = { key:possibleItemKey, printerName:possible.printerName, fault:"Paper Problem", possible:true };
+            current[possibleItemKey] = possibleItem;
+            faults.push(possibleItem);
+            if (!previous[possibleItemKey]) newFaults.push(possibleItem);
         }
         state.activePrinterFaults = current;
         renderCriticalPrinterAlerts(faults, newFaults.length > 0);
@@ -967,12 +1079,14 @@ var PrinterControl = (function () {
 
     function clearCriticalPrinterAlerts() {
         state.activePrinterFaults = {};
+        state.possiblePrinterFaults = {};
+        state.jobProgressWatch = {};
         renderCriticalPrinterAlerts([], false);
     }
 
     function printerStatusClass(status) {
         var value = String(status || "").toLowerCase();
-        if (/error|offline|paper jam|paper out|paper problem|door open|no toner|not available|output bin full|out of memory|blocked|intervention|stopped/.test(value)) return "error";
+        if (/error|offline|paper jam|paper out|door open|no toner|not available|output bin full|out of memory|blocked|intervention|stopped/.test(value)) return "error";
         if (/paused|warming|waiting|processing|busy|toner low|paper low|manual feed/.test(value)) return "warning";
         if (/printing|spooling|physical/.test(value)) return "printing";
         return "idle";
@@ -984,14 +1098,13 @@ var PrinterControl = (function () {
         if (/offline|workoffline|not available|server unknown/.test(normalized)) return "Offline";
         if (/paper jam|jammed paper|paper.*jam|blocaj.*h(?:â|a)rtie|h(?:â|a)rtie.*blocat/.test(normalized)) return "Paper Jam";
         if (/paper out|no paper|out of paper|paper empty|empty paper tray|tray empty|f(?:ă|a)r(?:ă|a) h(?:â|a)rtie|lips(?:ă|a).*h(?:â|a)rtie|nu (?:mai )?este h(?:â|a)rtie/.test(normalized)) return "Paper Out";
-        if (/paper problem|possible paper out|possible paper jam|check paper|stalled paper/.test(normalized)) return "Paper Problem";
         if (/door open/.test(normalized)) return "Door Open";
         if (/no toner|toner empty/.test(normalized)) return "No Toner";
         if (/output bin full/.test(normalized)) return "Output Bin Full";
         if (/out of memory/.test(normalized)) return "Out of Memory";
         if (/manual feed/.test(normalized)) return "Manual Feed";
         if (/user intervention/.test(normalized)) return "User Intervention";
-        if (/error|blocked|attention|page punt/.test(normalized)) return "Error";
+        if (/error|blocked|attention|paper problem|page punt/.test(normalized)) return "Error";
         if (/stopped/.test(normalized)) return "Stopped";
         if (/paused/.test(normalized)) return "Paused";
         if (/toner low/.test(normalized)) return "Toner Low";
@@ -1151,6 +1264,8 @@ var PrinterControl = (function () {
                     var row = document.createElement("tr");
                     textCell(row, (printer.default ? "★ " : "") + (printer.name || ""));
                     var displayStatus = canonicalLiveStatus(printer.status) || "Ready";
+                    var printerKey = String(printer.name || "").toLowerCase();
+                    if (state.possiblePrinterFaults[printerKey] && !criticalPrinterFault(displayStatus)) displayStatus = "Paper Problem";
                     if (Number(printer.jobCount || 0) <= 0 && displayStatus === "Printing") displayStatus = "Idle";
                     var rowFault = criticalPrinterFault(displayStatus);
                     if (rowFault) row.className = "printer-fault-row";
@@ -1306,6 +1421,7 @@ var PrinterControl = (function () {
             var key = printerName.toLowerCase();
             if (active.length) state.liveJobsByPrinter[key] = { printerName: printerName, jobs: active };
             else delete state.liveJobsByPrinter[key];
+            updateJobProgressWatch(printerName, active);
         }
         renderActivity();
         updateButtons();
@@ -1720,6 +1836,7 @@ var PrinterControl = (function () {
         if (!state.subscriptionId) state.subscriptionId = createSubscriptionId();
         state.unloading = false;
         state.topTabActive = true;
+        startStalledJobChecks();
         updateDesktopAlertsButton();
         var unlockAudio = function () {
             try {

@@ -1,9 +1,9 @@
 {
   "name": "Mesh Printer Control",
   "shortName": "printercontrol",
-  "version": "0.4.45",
+  "version": "0.4.46",
   "author": "Custom MeshCentral Integration",
-  "description": "Secure Windows printer management with watcher recovery, native Winspool queue capture, PrintService fallback detection, live physical printers, and Remote Tools-style fault priority.",
+  "description": "Stable 0.4.40 watcher with non-blocking browser-side Paper Out/Paper Jam alerts and conservative stalled-job warnings; no extra Spooler polling.",
   "hasAdminPanel": false,
   "homepage": "https://github.com/stavila0170/meshcentral-printercontrol",
   "changelogUrl": "https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/CHANGELOG.md",

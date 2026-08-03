@@ -1,11 +1,29 @@
 # Changelog
 
-## 0.4.45
+## 0.4.46
 
-- Rebased the endpoint watcher on the stable 0.4.40 startup implementation.
-- Added persistent browser, sound and optional desktop alerts for Paper Out, Paper Jam and Paper Problem.
-- Added a bounded no-progress heuristic for drivers that expose only Printing or Idle while paper is missing or jammed.
-- Propagated physical-job Paper Problem state to the active-printer inventory.
+- Reverted the agent-side paper-problem heuristic that could block the Windows Print Spooler and freeze Word/Edge print dialogs.
+- Uses the unchanged 0.4.40 watcher and performs no additional WMI, CIM, PrintService-log or queue polling.
+- Keeps immediate alerts for exact Paper Out and Paper Jam states already reported by the driver.
+- Adds a conservative browser-side warning only when an already observed queue job shows no progress for a page-based timeout.
+- The warning is display-only and never opens, locks, pauses or restarts the Windows Spooler.
+
+## 0.4.43
+
+- Built directly from the stable 0.4.40 code path; no 0.4.41/0.4.42 watcher-start changes are included.
+- Show a persistent red alert when a physical printer reports **Paper Jam** or **Paper Out**.
+- Display the affected printer name and a clear corrective instruction, and keep the alert visible until the fault clears.
+- Highlight the affected printer row and play a three-tone alert only when a new fault appears, avoiding repeated sounds on every two-second snapshot.
+- Add optional browser desktop notifications through the **Enable desktop alerts** button.
+- Recognize additional English and Romanian paper-jam / missing-paper status variants.
+
+## 0.4.40
+
+- Acknowledge newly opened or rebuilt Printers pages immediately when the endpoint watcher is already active, preventing an indefinite **Starting real-time status...** badge.
+- Add a 20-second browser-side startup watchdog that safely recreates the live subscription when a ready acknowledgement is lost.
+- Send the endpoint watcher ready acknowledgement before native interop initialization, so slow PowerShell `Add-Type` startup no longer blocks the UI state.
+- Enable and poll `Microsoft-Windows-PrintService/Operational` event 307 as a fallback for ultra-short USB jobs that disappear before `EnumJobs`, `Win32_PrintJob` or `Get-PrintJob` can sample them.
+- Reconstruct missed jobs from the PrintService event metadata and keep them visible with the existing bounded physical-print estimate.
 
 ## 0.4.39
 

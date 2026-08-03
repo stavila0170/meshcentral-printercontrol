@@ -1,6 +1,10 @@
-# Mesh Printer Control 0.4.45
+# Safety note for 0.4.46
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.45 runs from the existing LocalSystem Mesh Agent service: it uses the existing LocalSystem **Mesh Agent** service, installs no additional service, and keeps its long-running watcher logic in memory. Windows PowerShell may use its normal temporary compiler workspace while loading the native Winspool interop type.
+Version 0.4.46 uses the unchanged 0.4.40 endpoint watcher. Paper alerts are evaluated in the browser from statuses and jobs already received; the alert feature does not add extra Spooler/WMI polling and cannot block the Windows print dialog.
+
+# Mesh Printer Control 0.4.46
+
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.40 runs from the existing LocalSystem Mesh Agent service: it uses the existing LocalSystem **Mesh Agent** service, installs no additional service, and keeps its long-running watcher logic in memory. Windows PowerShell may use its normal temporary compiler workspace while loading the native Winspool interop type.
 
 ## Included operations
 
@@ -16,16 +20,16 @@ The browser cannot submit PowerShell. The server and endpoint accept only the fi
 
 ### Refresh and live print-job behavior
 
-Version 0.4.45 displays two distinct sections:
+Version 0.4.40 displays two distinct sections:
 
 - **Active physical printers** — only real printer queues that Windows currently reports as available. Remote Desktop redirected queues and common virtual PDF, XPS, Fax and OneNote printers are excluded. The existing endpoint watcher sends a lightweight printer-state snapshot approximately every two seconds, so an offline printer disappears and an available printer reappears without running a full inventory refresh.
 - **Print jobs — all printers** — the only print-job table. It aggregates current jobs from every active physical printer and keeps Pause, Resume and Cancel bound to the printer named in each row.
 
 The watcher starts automatically and remains enabled while the top-level **Printers** tab is selected. It stops only when another MeshCentral device tab such as Desktop, Terminal or Files is selected, or when the plugin page unloads. Browser minimization and browser-tab visibility changes do not stop monitoring. A 15-second lease heartbeat and automatic renewal before the independent 10-minute safety limit prevent orphaned endpoint processes.
 
-Printer status is resolved with the same priority model used by Remote Tools. Version 0.4.45 combines `Get-Printer`, numeric `Get-PrintJob.JobStatus` flags, `Win32_PrintJob.StatusMask` and `Win32_Printer`. Queue-level flags such as Paper Out, Offline, User Intervention, Blocked, Error and Paused override Printing even when the driver still exposes a simultaneous Printing flag. Queue rows and the physical-printer list inherit the same effective fault state in real time.
+Printer status is resolved with the same priority model used by Remote Tools. Version 0.4.40 combines `Get-Printer`, numeric `Get-PrintJob.JobStatus` flags, `Win32_PrintJob.StatusMask` and `Win32_Printer`. Queue-level flags such as Paper Out, Offline, User Intervention, Blocked, Error and Paused override Printing even when the driver still exposes a simultaneous Printing flag. Queue rows and the physical-printer list inherit the same effective fault state in real time.
 
-Printer jobs are read first through the native Windows Spooler `EnumJobs` API, then enriched from `Win32_PrintJob` and the PrintManagement `Get-PrintJob` interface. For USB drivers that remove a job before any queue sampler can observe it, version 0.4.45 also uses new event 307 records from `Microsoft-Windows-PrintService/Operational` to reconstruct the document, user, printer, size and page count and then continue the same physical-print tracking. The native queue reader is sampled immediately after Spooler change notifications and every 100 ms while the Printers tab is active, so short USB jobs are no longer dependent on the slower WMI provider. Windows can remove a job as soon as it has been transferred to the printer buffer, before all pages have physically printed. Version 0.4.45 therefore keeps a shadow row with status **Printing** after Spooler handoff. A reliable Printing/Busy-to-Idle transition completes the row immediately. Some drivers keep an obsolete Busy/Processing value indefinitely; for those drivers, the watcher measures a bounded page-based estimate from the job's first queue appearance and applies only a short final grace period. When no tracked jobs remain, a stale driver-level Printing value is displayed as **Idle**. No completed-history row is retained after completion.
+Printer jobs are read first through the native Windows Spooler `EnumJobs` API, then enriched from `Win32_PrintJob` and the PrintManagement `Get-PrintJob` interface. For USB drivers that remove a job before any queue sampler can observe it, version 0.4.40 also uses new event 307 records from `Microsoft-Windows-PrintService/Operational` to reconstruct the document, user, printer, size and page count and then continue the same physical-print tracking. The native queue reader is sampled immediately after Spooler change notifications and every 100 ms while the Printers tab is active, so short USB jobs are no longer dependent on the slower WMI provider. Windows can remove a job as soon as it has been transferred to the printer buffer, before all pages have physically printed. Version 0.4.40 therefore keeps a shadow row with status **Printing** after Spooler handoff. A reliable Printing/Busy-to-Idle transition completes the row immediately. Some drivers keep an obsolete Busy/Processing value indefinitely; for those drivers, the watcher measures a bounded page-based estimate from the job's first queue appearance and applies only a short final grace period. When no tracked jobs remain, a stale driver-level Printing value is displayed as **Idle**. No completed-history row is retained after completion.
 
 ## Requirements
 
@@ -59,7 +63,7 @@ Enable the plugin in the `settings` section of `meshcentral-data/config.json`:
 
 Retain existing entries in `plugins.list`. Restart MeshCentral after copying the plugin. On Windows-hosted MeshCentral, `Install-MeshCentralPlugin.ps1` performs the copy, verifies every installed file and optionally restarts the service.
 
-For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.45` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
+For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.40` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
 
 ```powershell
 docker exec meshcentral rm -rf /opt/meshcentral/meshcentral-data/plugins/printercontrol
@@ -97,7 +101,7 @@ sc.exe delete MeshPrinterControl
 Remove-Item "$env:ProgramData\MeshPrinterControl" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-Version 0.4.45 does not recreate this directory.
+Version 0.4.40 does not recreate this directory.
 
 ## Security design
 
@@ -137,10 +141,6 @@ node tests\test_agent_only.js
 ```
 
 
-## Paper attention alerts (0.4.45)
-
-Version 0.4.45 keeps the watcher startup path from 0.4.40. Exact `Paper Out` and `Paper Jam` states reported by Windows are shown immediately. When a driver reports only `Printing` or `Idle`, a physical job that has passed its page-based estimate plus the final grace period without a completed Busy-to-Idle transition changes to `Paper Problem`. The browser then shows a persistent red warning, sounds an alert once, and can show a desktop notification. The warning clears when the printer resumes and completes the job or when the queue is cleared.
-
-## Active physical printers and hybrid all-printers queue (0.4.45)
+## Active physical printers and hybrid all-printers queue (0.4.40)
 
 The browser displays one Print jobs table. It receives live queue events from every printer on the endpoint and includes the printer name in each row.
