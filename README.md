@@ -1,6 +1,6 @@
-# Mesh Printer Control 0.4.13
+# Mesh Printer Control 0.4.40
 
-Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.13 is fully in-memory on endpoints: it uses the existing LocalSystem **Mesh Agent** service, contains no `.exe`, installs no additional service and writes no operation files to the endpoint.
+Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.40 runs from the existing LocalSystem Mesh Agent service: it uses the existing LocalSystem **Mesh Agent** service, installs no additional service, and keeps its long-running watcher logic in memory. Windows PowerShell may use its normal temporary compiler workspace while loading the native Winspool interop type.
 
 ## Included operations
 
@@ -16,9 +16,16 @@ The browser cannot submit PowerShell. The server and endpoint accept only the fi
 
 ### Refresh and live print-job behavior
 
-Version 0.4.13 performs no printer-inventory or print-job polling. The plugin iframe is lazy-loaded only after the **Printers** device tab is opened, so viewing a device or starting Desktop does not launch hidden printer work. Inventory is then loaded once, and later updated only through the manual **Refresh** button or once after an operation that changes printer state.
+Version 0.4.40 displays two distinct sections:
 
-Pressing **Jobs** loads the selected queue once and does not start background monitoring. Live monitoring is explicitly opt-in through **Start live events**. While enabled, the page sends a lightweight 15-second lease heartbeat; printer inventory and jobs are not polled. Monitoring stops immediately when another MeshCentral device tab is selected, and also stops when the heartbeat is lost, when the browser/server connection disappears, or after a 10-minute safety limit. MeshAgent also enforces an independent endpoint lease and the PowerShell watcher has its own 10-minute deadline, so an orphaned process cannot remain active indefinitely. The first 0.4.13 agent-side operation also performs a narrowly targeted cleanup of legacy watcher processes created by earlier live-monitoring builds. **Refresh jobs** remains available as a manual fallback.
+- **Active physical printers** — only real printer queues that Windows currently reports as available. Remote Desktop redirected queues and common virtual PDF, XPS, Fax and OneNote printers are excluded. The existing endpoint watcher sends a lightweight printer-state snapshot approximately every two seconds, so an offline printer disappears and an available printer reappears without running a full inventory refresh.
+- **Print jobs — all printers** — the only print-job table. It aggregates current jobs from every active physical printer and keeps Pause, Resume and Cancel bound to the printer named in each row.
+
+The watcher starts automatically and remains enabled while the top-level **Printers** tab is selected. It stops only when another MeshCentral device tab such as Desktop, Terminal or Files is selected, or when the plugin page unloads. Browser minimization and browser-tab visibility changes do not stop monitoring. A 15-second lease heartbeat and automatic renewal before the independent 10-minute safety limit prevent orphaned endpoint processes.
+
+Printer status is resolved with the same priority model used by Remote Tools. Version 0.4.40 combines `Get-Printer`, numeric `Get-PrintJob.JobStatus` flags, `Win32_PrintJob.StatusMask` and `Win32_Printer`. Queue-level flags such as Paper Out, Offline, User Intervention, Blocked, Error and Paused override Printing even when the driver still exposes a simultaneous Printing flag. Queue rows and the physical-printer list inherit the same effective fault state in real time.
+
+Printer jobs are read first through the native Windows Spooler `EnumJobs` API, then enriched from `Win32_PrintJob` and the PrintManagement `Get-PrintJob` interface. For USB drivers that remove a job before any queue sampler can observe it, version 0.4.40 also uses new event 307 records from `Microsoft-Windows-PrintService/Operational` to reconstruct the document, user, printer, size and page count and then continue the same physical-print tracking. The native queue reader is sampled immediately after Spooler change notifications and every 100 ms while the Printers tab is active, so short USB jobs are no longer dependent on the slower WMI provider. Windows can remove a job as soon as it has been transferred to the printer buffer, before all pages have physically printed. Version 0.4.40 therefore keeps a shadow row with status **Printing** after Spooler handoff. A reliable Printing/Busy-to-Idle transition completes the row immediately. Some drivers keep an obsolete Busy/Processing value indefinitely; for those drivers, the watcher measures a bounded page-based estimate from the job's first queue appearance and applies only a short final grace period. When no tracked jobs remain, a stale driver-level Printing value is displayed as **Idle**. No completed-history row is retained after completion.
 
 ## Requirements
 
@@ -52,7 +59,7 @@ Enable the plugin in the `settings` section of `meshcentral-data/config.json`:
 
 Retain existing entries in `plugins.list`. Restart MeshCentral after copying the plugin. On Windows-hosted MeshCentral, `Install-MeshCentralPlugin.ps1` performs the copy, verifies every installed file and optionally restarts the service.
 
-For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.2` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
+For the Docker layout used during development, run these commands from the `MeshPrinterControl-0.4.40` directory. Removing the previous directory first is important because `docker cp` does not delete obsolete assets from older versions:
 
 ```powershell
 docker exec meshcentral rm -rf /opt/meshcentral/meshcentral-data/plugins/printercontrol
@@ -75,14 +82,14 @@ https://github.com/stavila0170/meshcentral-printercontrol
 Place the contents of `plugin\printercontrol` in the repository's `printercontrol` directory, commit and push to the `main` branch. Confirm that this URL returns only JSON, without a GitHub HTML page:
 
 ```text
-https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/config.json
+https://raw.githubusercontent.com/stavila0170/meshcentral-printercontrol/main/printercontrol/config.json
 ```
 
 Use that raw URL when adding the plugin to MeshCentral. The GitHub archive referenced by `downloadUrl` must retain the `printercontrol` directory at repository root.
 
 ## Upgrade from 0.3.x
 
-Install 0.4.13 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
+Install 0.4.32 and restart MeshCentral. After confirming that the Printers tab works, artifacts left by versions 0.3.x or 0.4.0 can be removed from each endpoint in an elevated PowerShell prompt:
 
 ```powershell
 Stop-Service MeshPrinterControl -Force -ErrorAction SilentlyContinue
@@ -90,7 +97,7 @@ sc.exe delete MeshPrinterControl
 Remove-Item "$env:ProgramData\MeshPrinterControl" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-Version 0.4.13 does not recreate this directory.
+Version 0.4.40 does not recreate this directory.
 
 ## Security design
 
@@ -111,7 +118,7 @@ Version 0.4.13 does not recreate this directory.
 - Printer drivers must already be installed. INF upload and driver installation are not included.
 - The transport targets agents connected to the same MeshCentral server process; multi-server peering needs an additional routing adapter.
 - Environments that block Windows PowerShell, WMI event subscriptions or the `PrintManagement` module cannot use the related printer features.
-- Live events start only after **Start live events** is pressed for a selected printer. Monitoring stops after 10 minutes and must be enabled again when needed.
+- Real-time status starts automatically, cannot be paused from inside the plugin, remains enabled while the top-level Printers tab is selected, and renews automatically before the independent 10-minute safety limit.
 
 ## Development checks
 
@@ -128,3 +135,8 @@ node --check plugin\printercontrol\printercontrol.js
 node --check plugin\printercontrol\modules_meshcore\printercontrol.js
 node tests\test_agent_only.js
 ```
+
+
+## Active physical printers and hybrid all-printers queue (0.4.40)
+
+The browser displays one Print jobs table. It receives live queue events from every printer on the endpoint and includes the printer name in each row.
