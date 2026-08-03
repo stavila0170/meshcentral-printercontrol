@@ -38,6 +38,7 @@ module.exports.printercontrol = function (parent) {
     var DEFAULT_OPERATION_TIMEOUT_MS = 135000;
     var OPERATION_TIMEOUTS_MS = {
         inventory: 105000,
+        snapshot: 30000,
         jobs: 60000,
         cancelJob: 45000,
         pauseJob: 45000,
@@ -55,6 +56,7 @@ module.exports.printercontrol = function (parent) {
 
     var ACTION_PERMISSIONS = {
         inventory: "can_view",
+        snapshot: "can_view",
         jobs: "can_view",
         cancelJob: "manage_jobs",
         pauseJob: "manage_jobs",
@@ -107,7 +109,7 @@ module.exports.printercontrol = function (parent) {
         // MeshCentral defines the permission API after it constructs the plugin
         // handler, so registration must be deferred until this startup hook.
         registerPluginPermissions();
-        obj.debug("plugin:printercontrol", "Printer Control 0.4.40 started with watcher recovery, existing-subscriber acknowledgement and PrintService fallback capture");
+        obj.debug("plugin:printercontrol", "Printer Control 0.4.47 started in safe serialized snapshot mode; persistent endpoint watcher disabled");
     };
 
     obj.server_shutdown = function () {
@@ -651,7 +653,7 @@ module.exports.printercontrol = function (parent) {
 
     function canCoalesceRead(pending, operation, params) {
         if (!pending || pending.kind || pending.operation !== operation) return false;
-        if (operation === "inventory") return true;
+        if (operation === "inventory" || operation === "snapshot") return true;
         if (operation !== "jobs") return false;
         var activePrinter = pending.params && pending.params.printerName;
         var requestedPrinter = params && params.printerName;
@@ -676,7 +678,7 @@ module.exports.printercontrol = function (parent) {
     }
 
     function isReadOperation(operation) {
-        return operation === "inventory" || operation === "jobs";
+        return operation === "inventory" || operation === "snapshot" || operation === "jobs";
     }
 
     function readQueue(nodeid, create) {

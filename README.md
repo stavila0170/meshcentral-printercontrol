@@ -1,4 +1,11 @@
-# Mesh Printer Control 0.4.40
+# Mesh Printer Control 0.4.47
+
+Version 0.4.47 replaces the persistent Winspool watcher with short serialized snapshots every two seconds while the Printers tab is open. It automatically terminates stale watcher processes left by older versions and does not retain printer handles.
+
+
+Version 0.4.46 uses the unchanged 0.4.40 endpoint watcher. Paper alerts are evaluated in the browser from statuses and jobs already received; the alert feature does not add extra Spooler/WMI polling and cannot block the Windows print dialog.
+
+# Mesh Printer Control 0.4.46
 
 Mesh Printer Control adds a **Printers** tab to Windows devices in MeshCentral. Version 0.4.40 runs from the existing LocalSystem Mesh Agent service: it uses the existing LocalSystem **Mesh Agent** service, installs no additional service, and keeps its long-running watcher logic in memory. Windows PowerShell may use its normal temporary compiler workspace while loading the native Winspool interop type.
 

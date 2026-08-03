@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.47
+
+- Disables the persistent Winspool notification watcher that could retain printer handles and freeze Word or browser print dialogs on some USB drivers.
+- Uses a short serialized snapshot every two seconds only while the Printers tab is active.
+- Adds all active jobs to each snapshot, so the all-printers job table remains live without a long-running endpoint process.
+- Automatically terminates stale `MESH_PRINTERCONTROL_WATCHER_*` PowerShell processes left by older releases on the first refresh.
+- Preserves exact Paper Out/Paper Jam reporting when the Windows driver exposes it.
+
+## 0.4.46
+
+- Reverted the agent-side paper-problem heuristic that could block the Windows Print Spooler and freeze Word/Edge print dialogs.
+- Uses the unchanged 0.4.40 watcher and performs no additional WMI, CIM, PrintService-log or queue polling.
+- Keeps immediate alerts for exact Paper Out and Paper Jam states already reported by the driver.
+- Adds a conservative browser-side warning only when an already observed queue job shows no progress for a page-based timeout.
+- The warning is display-only and never opens, locks, pauses or restarts the Windows Spooler.
+
+## 0.4.43
+
+- Built directly from the stable 0.4.40 code path; no 0.4.41/0.4.42 watcher-start changes are included.
+- Show a persistent red alert when a physical printer reports **Paper Jam** or **Paper Out**.
+- Display the affected printer name and a clear corrective instruction, and keep the alert visible until the fault clears.
+- Highlight the affected printer row and play a three-tone alert only when a new fault appears, avoiding repeated sounds on every two-second snapshot.
+- Add optional browser desktop notifications through the **Enable desktop alerts** button.
+- Recognize additional English and Romanian paper-jam / missing-paper status variants.
+
 ## 0.4.40
 
 - Acknowledge newly opened or rebuilt Printers pages immediately when the endpoint watcher is already active, preventing an indefinite **Starting real-time status...** badge.

@@ -24,6 +24,16 @@
         .message:empty { display:none; }
         .message.error { color:var(--danger); background:#fee4e2; }
         .message.success { color:var(--ok); background:#d1fadf; }
+        .printer-alert { display:flex; align-items:flex-start; gap:10px; margin:9px 0; padding:11px 12px; border:2px solid #d92d20; border-radius:6px; color:#912018; background:#fee4e2; box-shadow:0 0 0 2px rgba(217,45,32,.08); }
+        .printer-alert[hidden] { display:none; }
+        .printer-alert-icon { font-size:22px; line-height:1; }
+        .printer-alert-content { min-width:0; flex:1; }
+        .printer-alert-title { display:block; margin-bottom:3px; font-size:14px; }
+        .printer-alert-details { white-space:pre-line; font-weight:600; }
+        .printer-fault-row { background:rgba(217,45,32,.10); }
+        .printer-fault-row:hover { background:rgba(217,45,32,.16); }
+        @keyframes printerAlertPulse { 0%,100% { box-shadow:0 0 0 2px rgba(217,45,32,.08); } 50% { box-shadow:0 0 0 5px rgba(217,45,32,.22); } }
+        .printer-alert.new-fault { animation:printerAlertPulse .8s ease-in-out 3; }
         .panel { margin-top:10px; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
         .panel-head { padding:9px 10px; background:var(--panel); border-bottom:1px solid var(--border); }
         .panel-head h2 { margin:0; font-size:15px; }
@@ -55,6 +65,9 @@
             .message { background:#26374a; } .muted { color:#aaa; }
             .badge { color:#f2f4f7; background:#475467; border-color:#667085; }
             .badge.unknown { color:#f2f4f7; background:#475467; border-color:#667085; }
+            .printer-alert { color:#ffd5d2; background:#5d1f1b; border-color:#f04438; }
+            .printer-fault-row { background:rgba(240,68,56,.14); }
+            .printer-fault-row:hover { background:rgba(240,68,56,.22); }
         }
     </style>
 </head>
@@ -67,11 +80,20 @@
         <button data-permission="manage_spooler" onclick="PrinterControl.run('spoolerStop',{})">Stop</button>
         <button data-permission="manage_spooler" onclick="PrinterControl.run('spoolerRestart',{})">Restart</button>
         <button class="danger" data-permission="manage_spooler" onclick="PrinterControl.clearQueue()">Clear queue</button>
+        <button id="desktopAlertsBtn" type="button" onclick="PrinterControl.enableDesktopAlerts()">Enable desktop alerts</button>
         <span class="spacer"></span>
         <span id="onlineBadge" class="badge unknown">Checking agent...</span>
     </div>
 
     <div id="message" class="message">Loading permissions...</div>
+
+    <div id="printerFaultAlert" class="printer-alert" role="alert" aria-live="assertive" hidden>
+        <span class="printer-alert-icon" aria-hidden="true">⚠</span>
+        <div class="printer-alert-content">
+            <strong class="printer-alert-title">Printer attention required</strong>
+            <div id="printerFaultDetails" class="printer-alert-details"></div>
+        </div>
+    </div>
 
     <details id="addPanel">
         <summary>Add TCP/IP printer</summary>
@@ -131,6 +153,7 @@ var PrinterControl = (function () {
     var DEFAULT_OPERATION_TIMEOUT_MS = 135000;
     var OPERATION_TIMEOUTS_MS = {
         inventory: 105000,
+        snapshot: 30000,
         jobs: 60000,
         cancelJob: 45000,
         pauseJob: 45000,
@@ -191,7 +214,18 @@ var PrinterControl = (function () {
         topTabActive: true,
         autoLiveEnabled: true,
         autoLiveRestartTimer: null,
-        autoLiveRestartAttempts: 0
+        autoLiveRestartAttempts: 0,
+        safePollTimer: null,
+        safePollIntervalMs: 2000,
+        snapshotRequestInFlight: false,
+        safePollCleanupPending: true,
+        safePollFailures: 0,
+        activePrinterFaults: {},
+        possiblePrinterFaults: {},
+        jobProgressWatch: {},
+        stalledJobCheckTimer: null,
+        alertAudioContext: null,
+        originalDocumentTitle: document.title
     };
 
     function hasPermission(name) { return state.permissions.indexOf(name) >= 0; }
@@ -329,6 +363,7 @@ var PrinterControl = (function () {
     function clearLiveState() {
         clearWatcherStartTimer();
         stopLiveTimers();
+        stopSafePolling();
         state.liveRequested = false;
         state.subscriptionActive = false;
         state.watcherReady = false;
@@ -338,22 +373,41 @@ var PrinterControl = (function () {
         updateButtons();
     }
 
+    function stopSafePolling() {
+        if (state.safePollTimer != null) {
+            window.clearInterval(state.safePollTimer);
+            state.safePollTimer = null;
+        }
+        state.snapshotRequestInFlight = false;
+    }
+
+    function safePollNow() {
+        if (!state.topTabActive || !state.liveRequested || state.unloading || !state.online || !hasPermission("can_view")) return false;
+        if (state.activeClientRequestId != null || state.inventoryRequestInFlight || state.snapshotRequestInFlight) return false;
+        var params = {};
+        if (state.safePollCleanupPending) params.cleanupLegacyWatchers = true;
+        return send("snapshot", params, { silent: true, background: true });
+    }
+
+    function startSafePolling() {
+        stopSafePolling();
+        safePollNow();
+        state.safePollTimer = window.setInterval(safePollNow, state.safePollIntervalMs);
+    }
+
     function startLiveEvents(automatic) {
         if (!state.topTabActive || !state.online || !hasPermission("can_view") || state.liveRequested) return false;
         clearAutoLiveRestartTimer();
         state.unloading = false;
         state.liveRequested = true;
+        state.subscriptionActive = true;
+        state.watcherReady = true;
         state.subscriptionPrinter = "*";
-        state.subscriptionActive = false;
-        state.watcherReady = false;
-        setLiveBadge("Starting real-time status...", "unknown");
+        state.autoLiveRestartAttempts = 0;
+        setLiveBadge("Real-time status on", "ok");
         startActivityFeed();
+        startSafePolling();
         updateButtons();
-        if (!sendSubscription(true, "*")) {
-            clearLiveState();
-            return false;
-        }
-        armWatcherStartTimer();
         return true;
     }
 
@@ -365,24 +419,19 @@ var PrinterControl = (function () {
     }
 
     function stopLiveEvents(reason, silent) {
-        var printerName = state.subscriptionPrinter || "*";
-        var shouldUnsubscribe = state.subscriptionActive || state.liveRequested || !!state.subscriptionPrinter;
+        var wasActive = state.liveRequested || state.subscriptionActive;
         state.liveRequested = false;
-        clearWatcherStartTimer();
-        stopLiveTimers();
-        if (shouldUnsubscribe && state.subscriptionId) {
-            sendSubscription(false, printerName);
-            // Ignore delayed unsubscribe replies if monitoring starts again quickly.
-            state.subscriptionId = createSubscriptionId();
-        }
         state.subscriptionActive = false;
         state.watcherReady = false;
         state.subscriptionPrinter = null;
+        clearWatcherStartTimer();
+        stopLiveTimers();
+        stopSafePolling();
         setLiveBadge(state.topTabActive ? "Real-time status reconnecting" : "Real-time status inactive", "unknown");
         stopActivityFeed();
         updateButtons();
         if (reason && silent !== true && !state.unloading) setMessage(reason);
-        return shouldUnsubscribe;
+        return wasActive;
     }
 
     function activateLiveTab() {
@@ -409,6 +458,7 @@ var PrinterControl = (function () {
         state.topTabActive = false;
         clearAutoLiveRestartTimer();
         stopTestPageJobDiscovery();
+        stopStalledJobChecks();
         return stopLiveEvents(null, true);
     }
 
@@ -668,7 +718,7 @@ var PrinterControl = (function () {
     }
 
     function updateButtons() {
-        var operationBusy = state.activeClientRequestId != null;
+        var operationBusy = state.activeClientRequestId != null && state.activeOperation !== "snapshot";
         var buttons = document.querySelectorAll("[data-permission]");
         for (var i = 0; i < buttons.length; i++) {
             buttons[i].disabled = operationBusy || !state.online || !hasPermission(buttons[i].getAttribute("data-permission"));
@@ -700,6 +750,7 @@ var PrinterControl = (function () {
             if (!options.silent) setMessage("Another printer operation is already running.");
             return false;
         }
+        if (operation === "snapshot" && state.snapshotRequestInFlight) return false;
         if (operation === "inventory" && state.inventoryRequestInFlight) {
             if (!options.silent) setMessage("Inventory refresh is already running.");
             return false;
@@ -726,6 +777,8 @@ var PrinterControl = (function () {
             shared.pendingAt = Date.now();
             state.preserveSpoolerBadgeOnInventoryFailure = options.preserveSpoolerBadge === true;
             if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Checking...");
+        } else if (operation === "snapshot") {
+            state.snapshotRequestInFlight = true;
         } else if (operation === "jobs") {
             state.jobsRequestInFlight = true;
             state.jobsRequestSilent = options.silent === true;
@@ -738,7 +791,9 @@ var PrinterControl = (function () {
             setSpoolerBadge("Restarting...");
         }
 
-        startOperationTimer("Running " + operation, operationTimeoutMs(operation), operation === "jobs" && !state.jobsRequestSilent);
+        if (!(operation === "snapshot" && options.background === true)) {
+            startOperationTimer("Running " + operation, operationTimeoutMs(operation), operation === "jobs" && !state.jobsRequestSilent);
+        }
         parent.meshserver.send({
             action: "plugin",
             plugin: "printercontrol",
@@ -769,6 +824,292 @@ var PrinterControl = (function () {
         return value;
     }
 
+    function criticalPrinterFault(status) {
+        var normalized = String(status || "").trim().toLowerCase();
+        if (/paper jam|jammed paper|paper.*jam|blocaj.*h(?:â|a)rtie|h(?:â|a)rtie.*blocat/.test(normalized)) return "Paper Jam";
+        if (/paper out|no paper|out of paper|paper empty|empty paper tray|tray empty|f(?:ă|a)r(?:ă|a) h(?:â|a)rtie|lips(?:ă|a).*h(?:â|a)rtie|nu (?:mai )?este h(?:â|a)rtie/.test(normalized)) return "Paper Out";
+        if (/paper problem|possible paper|needs attention/.test(normalized)) return "Paper Problem";
+        return "";
+    }
+
+    function alertInstruction(fault) {
+        if (fault === "Paper Jam") return "eliminați hârtia blocată";
+        if (fault === "Paper Out") return "adăugați hârtie";
+        if (fault === "Paper Problem") return "verificați dacă lipsește hârtia sau există un blocaj";
+        return "verificați imprimanta";
+    }
+
+    function alertSummary(faults) {
+        var lines = [];
+        for (var i = 0; i < faults.length; i++) {
+            lines.push(faults[i].printerName + ": " + faults[i].fault + " — " + alertInstruction(faults[i].fault) + ".");
+        }
+        return lines.join("\n");
+    }
+
+    function playPrinterAlertSound() {
+        try {
+            var AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextCtor) return false;
+            if (!state.alertAudioContext) state.alertAudioContext = new AudioContextCtor();
+            var context = state.alertAudioContext;
+            if (context.state === "suspended" && typeof context.resume === "function") context.resume();
+            var startAt = context.currentTime + 0.02;
+            [0, 0.22, 0.44].forEach(function (offset, index) {
+                var oscillator = context.createOscillator();
+                var gain = context.createGain();
+                oscillator.type = "sine";
+                oscillator.frequency.value = index === 1 ? 760 : 920;
+                gain.gain.setValueAtTime(0.0001, startAt + offset);
+                gain.gain.exponentialRampToValueAtTime(0.18, startAt + offset + 0.015);
+                gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + 0.14);
+                oscillator.connect(gain);
+                gain.connect(context.destination);
+                oscillator.start(startAt + offset);
+                oscillator.stop(startAt + offset + 0.16);
+            });
+            return true;
+        } catch (ignore) {
+            return false;
+        }
+    }
+
+    function updateDesktopAlertsButton() {
+        var buttonElement = document.getElementById("desktopAlertsBtn");
+        if (!buttonElement) return;
+        if (!("Notification" in window)) {
+            buttonElement.textContent = "Desktop alerts unavailable";
+            buttonElement.disabled = true;
+            return;
+        }
+        if (Notification.permission === "granted") {
+            buttonElement.textContent = "Desktop alerts on";
+            buttonElement.disabled = false;
+        } else if (Notification.permission === "denied") {
+            buttonElement.textContent = "Desktop alerts blocked";
+            buttonElement.disabled = false;
+            buttonElement.title = "Allow notifications for this MeshCentral site in the browser settings.";
+        } else {
+            buttonElement.textContent = "Enable desktop alerts";
+            buttonElement.disabled = false;
+        }
+    }
+
+    function enableDesktopAlerts() {
+        playPrinterAlertSound();
+        if (!("Notification" in window)) {
+            setTransientMessage("Desktop notifications are not supported by this browser. The red in-page alert remains active.", "error");
+            updateDesktopAlertsButton();
+            return false;
+        }
+        if (Notification.permission === "granted") {
+            setTransientMessage("Desktop printer alerts are enabled.", "success");
+            updateDesktopAlertsButton();
+            return true;
+        }
+        if (Notification.permission === "denied") {
+            setTransientMessage("Desktop notifications are blocked. Allow them for this MeshCentral site in the browser settings.", "error");
+            updateDesktopAlertsButton();
+            return false;
+        }
+        try {
+            var request = Notification.requestPermission();
+            if (request && typeof request.then === "function") {
+                request.then(function (permission) {
+                    updateDesktopAlertsButton();
+                    setTransientMessage(permission === "granted" ? "Desktop printer alerts are enabled." : "Desktop notifications were not enabled.", permission === "granted" ? "success" : "error");
+                });
+            } else {
+                updateDesktopAlertsButton();
+            }
+        } catch (error) {
+            setTransientMessage("Unable to enable desktop notifications: " + error, "error");
+        }
+        return true;
+    }
+
+    function sendDesktopPrinterAlert(faults) {
+        if (!("Notification" in window) || Notification.permission !== "granted" || !faults.length) return false;
+        try {
+            var body = alertSummary(faults);
+            var notification = new Notification("Printer alert", {
+                body: body,
+                tag: "mesh-printer-fault-" + String(state.nodeid || "device"),
+                requireInteraction: true
+            });
+            notification.onclick = function () {
+                try { window.focus(); } catch (ignore) { }
+                try { notification.close(); } catch (ignoreClose) { }
+            };
+            return true;
+        } catch (ignore) {
+            return false;
+        }
+    }
+
+    function renderCriticalPrinterAlerts(faults, hasNewFault) {
+        var box = document.getElementById("printerFaultAlert");
+        var details = document.getElementById("printerFaultDetails");
+        if (!box || !details) return;
+        if (!faults.length) {
+            box.hidden = true;
+            box.className = "printer-alert";
+            details.textContent = "";
+            document.title = state.originalDocumentTitle;
+            return;
+        }
+        box.hidden = false;
+        box.className = "printer-alert" + (hasNewFault ? " new-fault" : "");
+        details.textContent = alertSummary(faults);
+        document.title = "⚠ Printer alert — " + state.originalDocumentTitle;
+        if (hasNewFault) {
+            window.setTimeout(function () {
+                if (!box.hidden) box.className = "printer-alert";
+            }, 2600);
+        }
+    }
+
+    function jobValueForWatch(job, names, fallback) {
+        return getJobValue(job, names, fallback);
+    }
+
+    function jobProgressSignature(jobs) {
+        var parts = [];
+        for (var i = 0; i < jobs.length; i++) {
+            var job = jobs[i] || {};
+            parts.push([
+                String(jobValueForWatch(job, ["id", "Id", "jobId", "JobId"], "")),
+                String(jobValueForWatch(job, ["pagesPrinted", "PagesPrinted"], 0)),
+                String(jobValueForWatch(job, ["totalPages", "TotalPages"], 0)),
+                String(jobValueForWatch(job, ["jobStatus", "JobStatus", "status", "Status"], "")),
+                String(jobValueForWatch(job, ["size", "Size"], 0))
+            ].join(":"));
+        }
+        parts.sort();
+        return parts.join("|");
+    }
+
+    function stalledJobThresholdMs(jobs) {
+        var pages = 0;
+        for (var i = 0; i < jobs.length; i++) {
+            var total = Number(jobValueForWatch(jobs[i], ["totalPages", "TotalPages"], 0));
+            if (isFinite(total) && total > 0) pages += Math.floor(total);
+        }
+        if (pages <= 0) pages = 1;
+        return Math.min(600000, Math.max(60000, 45000 + (pages * 20000)));
+    }
+
+    function updateJobProgressWatch(printerName, activeJobs) {
+        var name = String(printerName || "").trim();
+        if (!name) return;
+        var key = name.toLowerCase();
+        if (!activeJobs || !activeJobs.length) {
+            delete state.jobProgressWatch[key];
+            delete state.possiblePrinterFaults[key];
+            return;
+        }
+        var now = Date.now();
+        var signature = jobProgressSignature(activeJobs);
+        var threshold = stalledJobThresholdMs(activeJobs);
+        var watch = state.jobProgressWatch[key];
+        if (!watch) {
+            watch = { printerName:name, signature:signature, firstSeenAt:now, lastProgressAt:now, thresholdMs:threshold, jobs:activeJobs };
+            state.jobProgressWatch[key] = watch;
+        } else {
+            watch.printerName = name;
+            watch.jobs = activeJobs;
+            watch.thresholdMs = threshold;
+            if (watch.signature !== signature) {
+                watch.signature = signature;
+                watch.lastProgressAt = now;
+                delete state.possiblePrinterFaults[key];
+            }
+        }
+    }
+
+    function evaluateStalledJobWarnings() {
+        var now = Date.now();
+        var changed = false;
+        for (var key in state.jobProgressWatch) {
+            if (!Object.prototype.hasOwnProperty.call(state.jobProgressWatch, key)) continue;
+            var watch = state.jobProgressWatch[key];
+            if (!watch || !watch.jobs || !watch.jobs.length) {
+                delete state.jobProgressWatch[key];
+                if (state.possiblePrinterFaults[key]) { delete state.possiblePrinterFaults[key]; changed = true; }
+                continue;
+            }
+            if (now - Number(watch.lastProgressAt || now) >= Number(watch.thresholdMs || 60000)) {
+                if (!state.possiblePrinterFaults[key]) {
+                    state.possiblePrinterFaults[key] = { printerName:watch.printerName, fault:"Paper Problem", possible:true };
+                    changed = true;
+                }
+            } else if (state.possiblePrinterFaults[key]) {
+                delete state.possiblePrinterFaults[key];
+                changed = true;
+            }
+        }
+        if (changed && state.inventory) renderInventory(state.inventory, true);
+        return changed;
+    }
+
+    function startStalledJobChecks() {
+        if (state.stalledJobCheckTimer != null) return;
+        state.stalledJobCheckTimer = window.setInterval(evaluateStalledJobWarnings, 5000);
+    }
+
+    function stopStalledJobChecks() {
+        if (state.stalledJobCheckTimer != null) {
+            window.clearInterval(state.stalledJobCheckTimer);
+            state.stalledJobCheckTimer = null;
+        }
+    }
+
+    function refreshCriticalPrinterAlerts(printers) {
+        var previous = state.activePrinterFaults || {};
+        var current = {};
+        var faults = [];
+        var newFaults = [];
+        var exactByPrinter = {};
+        for (var i = 0; i < printers.length; i++) {
+            var printer = printers[i];
+            if (!printer) continue;
+            var printerName = String(printer.name || "").trim();
+            var fault = criticalPrinterFault(canonicalLiveStatus(printer.status));
+            if (!printerName || !fault) continue;
+            exactByPrinter[printerName.toLowerCase()] = true;
+            var key = printerName.toLowerCase() + "|" + fault.toLowerCase();
+            var item = { key:key, printerName:printerName, fault:fault };
+            current[key] = item;
+            faults.push(item);
+            if (!previous[key]) newFaults.push(item);
+        }
+        for (var possibleKey in state.possiblePrinterFaults) {
+            if (!Object.prototype.hasOwnProperty.call(state.possiblePrinterFaults, possibleKey)) continue;
+            if (exactByPrinter[possibleKey]) continue;
+            var possible = state.possiblePrinterFaults[possibleKey];
+            if (!possible) continue;
+            var possibleItemKey = possibleKey + "|paper problem";
+            var possibleItem = { key:possibleItemKey, printerName:possible.printerName, fault:"Paper Problem", possible:true };
+            current[possibleItemKey] = possibleItem;
+            faults.push(possibleItem);
+            if (!previous[possibleItemKey]) newFaults.push(possibleItem);
+        }
+        state.activePrinterFaults = current;
+        renderCriticalPrinterAlerts(faults, newFaults.length > 0);
+        if (newFaults.length > 0) {
+            playPrinterAlertSound();
+            sendDesktopPrinterAlert(newFaults);
+        }
+        return faults;
+    }
+
+    function clearCriticalPrinterAlerts() {
+        state.activePrinterFaults = {};
+        state.possiblePrinterFaults = {};
+        state.jobProgressWatch = {};
+        renderCriticalPrinterAlerts([], false);
+    }
+
     function printerStatusClass(status) {
         var value = String(status || "").toLowerCase();
         if (/error|offline|paper jam|paper out|door open|no toner|not available|output bin full|out of memory|blocked|intervention|stopped/.test(value)) return "error";
@@ -781,8 +1122,8 @@ var PrinterControl = (function () {
         var textValue = String(value || "").trim();
         var normalized = textValue.toLowerCase();
         if (/offline|workoffline|not available|server unknown/.test(normalized)) return "Offline";
-        if (/paper jam/.test(normalized)) return "Paper Jam";
-        if (/paper out|no paper/.test(normalized)) return "Paper Out";
+        if (/paper jam|jammed paper|paper.*jam|blocaj.*h(?:â|a)rtie|h(?:â|a)rtie.*blocat/.test(normalized)) return "Paper Jam";
+        if (/paper out|no paper|out of paper|paper empty|empty paper tray|tray empty|f(?:ă|a)r(?:ă|a) h(?:â|a)rtie|lips(?:ă|a).*h(?:â|a)rtie|nu (?:mai )?este h(?:â|a)rtie/.test(normalized)) return "Paper Out";
         if (/door open/.test(normalized)) return "Door Open";
         if (/no toner|toner empty/.test(normalized)) return "No Toner";
         if (/output bin full/.test(normalized)) return "Output Bin Full";
@@ -928,6 +1269,7 @@ var PrinterControl = (function () {
 
         var allPrinters = data && Array.isArray(data.printers) ? data.printers : [];
         var printers = allPrinters.filter(isActivePhysicalPrinter);
+        refreshCriticalPrinterAlerts(printers);
         rebuildActivePrinterNames(printers);
         state.activePrinterInventoryKnown = true;
         pruneLiveJobsForActivePrinters();
@@ -948,7 +1290,11 @@ var PrinterControl = (function () {
                     var row = document.createElement("tr");
                     textCell(row, (printer.default ? "★ " : "") + (printer.name || ""));
                     var displayStatus = canonicalLiveStatus(printer.status) || "Ready";
+                    var printerKey = String(printer.name || "").toLowerCase();
+                    if (state.possiblePrinterFaults[printerKey] && !criticalPrinterFault(displayStatus)) displayStatus = "Paper Problem";
                     if (Number(printer.jobCount || 0) <= 0 && displayStatus === "Printing") displayStatus = "Idle";
+                    var rowFault = criticalPrinterFault(displayStatus);
+                    if (rowFault) row.className = "printer-fault-row";
                     var statusCell = textCell(row, displayStatus);
                     statusCell.className = "printer-status " + printerStatusClass(displayStatus);
                     if (printer.liveStatusUpdatedAt) statusCell.title = "Updated in real time: " + printer.liveStatusUpdatedAt;
@@ -963,6 +1309,17 @@ var PrinterControl = (function () {
                     row.appendChild(actionCell);
                     body.appendChild(row);
                 });
+            }
+        }
+        state.liveJobsByPrinter = {};
+        for (var snapshotIndex = 0; snapshotIndex < printers.length; snapshotIndex++) {
+            var snapshotPrinter = printers[snapshotIndex];
+            var snapshotJobs = Array.isArray(snapshotPrinter.jobs) ? snapshotPrinter.jobs.filter(isActiveQueueJob) : [];
+            if (snapshotJobs.length) {
+                state.liveJobsByPrinter[String(snapshotPrinter.name || "").toLowerCase()] = {
+                    printerName: String(snapshotPrinter.name || ""),
+                    jobs: snapshotJobs
+                };
             }
         }
         renderActivity();
@@ -1101,6 +1458,7 @@ var PrinterControl = (function () {
             var key = printerName.toLowerCase();
             if (active.length) state.liveJobsByPrinter[key] = { printerName: printerName, jobs: active };
             else delete state.liveJobsByPrinter[key];
+            updateJobProgressWatch(printerName, active);
         }
         renderActivity();
         updateButtons();
@@ -1202,6 +1560,7 @@ var PrinterControl = (function () {
                 stopOperationTimer();
                 clearAutoLiveRestartTimer();
                 clearLiveState();
+                clearCriticalPrinterAlerts();
                 setSpoolerBadge("Unknown");
                 setMessage("MeshAgent is offline.", "error");
             } else if (firstPermissionsResult || manualRefreshRequested) {
@@ -1230,50 +1589,8 @@ var PrinterControl = (function () {
             return;
         }
 
-        if (message.type === "subscription") {
-            if (message.subscriptionId !== state.subscriptionId) return;
-            state.subscriptionActive = message.success === true && message.active === true && state.liveRequested;
-            if (state.subscriptionActive) {
-                state.subscriptionPrinter = message.printerName || "*";
-                setLiveBadge(state.watcherReady ? "Real-time status on" : "Starting real-time status...", state.watcherReady ? "ok" : "unknown");
-                startLiveTimers();
-            } else if (!state.liveRequested) {
-                clearLiveState();
-            }
-            updateButtons();
-            return;
-        }
-
-        if (message.type === "watcherStatus") {
-            if (message.success === true && state.liveRequested && state.subscriptionActive) {
-                clearWatcherStartTimer();
-                state.watcherReady = true;
-                setLiveBadge("Real-time status on", "ok");
-                state.autoLiveRestartAttempts = 0;
-            } else if (message.success !== true) {
-                var watcherError = message.error || "Automatic printer-status events are unavailable.";
-                clearLiveState();
-                setLiveBadge("Real-time status unavailable", "bad");
-                scheduleAutomaticLiveRestart(watcherError);
-            }
-            return;
-        }
-
-        if (message.type === "heartbeat") {
-            if (message.subscriptionId !== state.subscriptionId) return;
-            if (message.success !== true) {
-                var heartbeatError = message.error || "Real-time monitoring subscription expired.";
-                clearLiveState();
-                scheduleAutomaticLiveRestart(heartbeatError);
-            }
-            return;
-        }
-
-        if (message.type === "subscriptionExpired") {
-            if (message.subscriptionId !== state.subscriptionId) return;
-            var expiryReason = message.reason || "Real-time monitoring expired.";
-            clearLiveState();
-            scheduleAutomaticLiveRestart(expiryReason);
+        if (message.type === "subscription" || message.type === "watcherStatus" ||
+                message.type === "heartbeat" || message.type === "subscriptionExpired") {
             return;
         }
 
@@ -1296,6 +1613,7 @@ var PrinterControl = (function () {
         }
 
         if (message.type === "queued") {
+            if (message.operation === "snapshot") return;
             if (message.clientRequestId && message.clientRequestId !== state.activeClientRequestId) return;
             var waitingFor = message.activeOperation ? "Waiting for the current " + message.activeOperation + " operation to finish" : "Printer read queued";
             startOperationTimer(waitingFor, message.timeoutInMs, message.operation === "jobs");
@@ -1303,6 +1621,7 @@ var PrinterControl = (function () {
         }
 
         if (message.type === "started") {
+            if (message.operation === "snapshot") return;
             if (message.clientRequestId && message.clientRequestId !== state.activeClientRequestId) return;
             startOperationTimer("Running " + String(message.operation || state.activeOperation || "printer operation"),
                 message.timeoutInMs, message.operation === "jobs" && !state.jobsRequestSilent);
@@ -1338,6 +1657,11 @@ var PrinterControl = (function () {
                 failedSharedInventory.pendingAt = 0;
                 if (!state.preserveSpoolerBadgeOnInventoryFailure) setSpoolerBadge("Unknown");
                 state.preserveSpoolerBadgeOnInventoryFailure = false;
+            } else if (message.operation === "snapshot") {
+                state.snapshotRequestInFlight = false;
+                state.safePollFailures++;
+                suppressErrorMessage = true;
+                if (state.safePollFailures >= 3) setLiveBadge("Real-time status delayed", "unknown");
             } else if (message.operation === "jobs") {
                 state.jobsRequestInFlight = false;
                 suppressErrorMessage = state.jobsRequestSilent;
@@ -1376,6 +1700,20 @@ var PrinterControl = (function () {
             return;
         }
 
+        if (message.operation === "snapshot") {
+            state.snapshotRequestInFlight = false;
+            state.safePollFailures = 0;
+            state.safePollCleanupPending = false;
+            setLiveBadge("Real-time status on", "ok");
+            var snapshotData = message.data || {};
+            if (!state.inventory) state.inventory = { drivers: [], ports: [], printers: [], spooler: {} };
+            if (snapshotData.spooler) state.inventory.spooler = snapshotData.spooler;
+            if (Array.isArray(snapshotData.printers)) state.inventory.printers = snapshotData.printers;
+            state.inventory.snapshotTime = snapshotData.snapshotTime || null;
+            renderInventory(state.inventory, true);
+            return;
+        }
+
         if (message.operation === "inventory") {
             state.inventoryRequestInFlight = false;
             var completedSharedInventory = sharedInventory();
@@ -1383,6 +1721,7 @@ var PrinterControl = (function () {
             completedSharedInventory.pendingAt = 0;
             completedSharedInventory.data = message.data;
             completedSharedInventory.updatedAt = Date.now();
+            state.safePollCleanupPending = false;
             renderInventory(message.data);
             return;
         }
@@ -1469,7 +1808,9 @@ var PrinterControl = (function () {
 
     function refresh(preserveSpoolerBadge, silent) {
         if (!state.online || !hasPermission("can_view")) return false;
-        return send("inventory", {}, {
+        var params = {};
+        if (state.safePollCleanupPending) params.cleanupLegacyWatchers = true;
+        return send("inventory", params, {
             preserveSpoolerBadge: preserveSpoolerBadge === true,
             silent: silent === true
         });
@@ -1514,6 +1855,17 @@ var PrinterControl = (function () {
         if (!state.subscriptionId) state.subscriptionId = createSubscriptionId();
         state.unloading = false;
         state.topTabActive = true;
+        startStalledJobChecks();
+        updateDesktopAlertsButton();
+        var unlockAudio = function () {
+            try {
+                if (state.alertAudioContext && state.alertAudioContext.state === "suspended") state.alertAudioContext.resume();
+            } catch (ignore) { }
+            document.removeEventListener("pointerdown", unlockAudio);
+            document.removeEventListener("keydown", unlockAudio);
+        };
+        document.addEventListener("pointerdown", unlockAudio);
+        document.addEventListener("keydown", unlockAudio);
         return requestPermissions();
     }
 
@@ -1533,6 +1885,7 @@ var PrinterControl = (function () {
         activateLiveTab: activateLiveTab,
         deactivateLiveTab: deactivateLiveTab,
         ensureAutomaticLive: ensureAutomaticLive,
+        enableDesktopAlerts: enableDesktopAlerts,
         unsubscribeJobs: unsubscribeJobs
     };
 })();
